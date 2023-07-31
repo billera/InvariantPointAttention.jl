@@ -30,7 +30,6 @@ function IPA(   dims::Integer,
                 N_point_values::Integer,
                 ;
                 c_z = 0, 
-                gamma_h = 4f0,
                 Typ = Float32,
             )
     if c_z == 0
@@ -43,8 +42,7 @@ function IPA(   dims::Integer,
         c = c,
         N_head = N_head,
         N_query_points = N_query_points,
-        N_point_values = N_point_values,
-        gamma_h = gamma_h, #unused???
+        N_point_values = N_point_values, 
         c_z = c_z,
         pairwise = pairwise,
         Typ = Typ
@@ -86,6 +84,7 @@ function IPA(   dims::Integer,
                 ),
             pair = pair,
             pair_linear = pair_linear,
+            gamma_h = ones(Typ, N_head) .* Typ(0.541)
             )
     
     return IPA(settings, layers)
@@ -94,8 +93,9 @@ end
 function (ipa::IPA)(si::AbstractArray,Ti::Tuple{AbstractArray,AbstractArray})
     l = ipa.layers
     c, N_head, N_query_points, N_point_values, c_z = ipa.settings.c, ipa.settings.N_head, ipa.settings.N_query_points, ipa.settings.N_point_values, ipa.settings.c_z
-    gamma_h, pairwise, Typ = ipa.settings.gamma_h, ipa.settings.pairwise, ipa.settings.Typ
+    pairwise, Typ = ipa.settings.pairwise, ipa.settings.Typ
     rot_Ti, translate_Ti = Ti
+    gamma_h = softmax(l.gamma_h)
 
     # Get relevant parameters from our ipa struct. 
     paramtahs = l.ipa_j(si)
