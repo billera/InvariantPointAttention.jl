@@ -2,6 +2,7 @@ using LinearAlgebra
 using Diffusions: bcds2flatquats
 using Flux: batched_mul, batched_transpose
 using CUDA
+
 function rotmatrix_from_quat(q)
     """
     Returns the rotation matrix form of N flat quaternions. 
@@ -33,20 +34,22 @@ function rotmatrix_from_quat(q)
     return reshape(vcat(r1, r4, r7, r2, r5, r8, r3, r6, r9), 3, 3, :)
 end
 
-function get_rotation(N, M)
+Typ = Float32
+
+function get_rotation(M, N)
     """
-    Gets N random rotation matrices formatted as an array of size 3x3xN. 
+    Gets M x N random rotation matrices formatted as an array of size 3x3xN. 
     """
-    return reshape(rotmatrix_from_quat(bcds2flatquats(randn(3,N*M))),3,3,N,M)
+    return Typ.(reshape(rotmatrix_from_quat(bcds2flatquats(randn(3,M*N))),3,3,M,N))
 end
-function get_rotation(N) return reshape(rotmatrix_from_quat(bcds2flatquats(randn(3,N))),3,3,N) end
-function get_translation(N,M)
+function get_rotation(N) return Typ.(reshape(rotmatrix_from_quat(bcds2flatquats(randn(3,N))),3,3,N)) end
+function get_translation(M, N)
     """
-    Gets N random translations formatted as an array of size 3x1xN (for purposes of broadcasting to arrays of size 3 x m x N)
+    Gets M x N random translations formatted as an array of size 3x1xNxM.
     """
-    return randn(3,1,N,M)
+    return Typ.(randn(3,1, M, N))
 end
-function get_translation(N) return randn(3,1,N) end
+function get_translation(N) return Typ.(randn(3,1,N)) end
 
 
 function T_R3(mat, rot,trans)
@@ -58,7 +61,8 @@ function T_R3(mat, rot,trans)
     size_mat = size(mat)
     rotc = reshape(rot, 3,3,:)  
     trans = reshape(trans, 3,1,:)
-    matc = reshape(mat,3,size(mat,2),:) 
+    matc = reshape(mat,3,size(mat,2),:)
+    @show size(rotc), size(matc) 
     batched_mul(rotc, matc)
     if trans != 0
         rotated_mat = batched_mul(rotc,matc) .+ trans
