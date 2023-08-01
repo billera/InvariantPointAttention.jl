@@ -1,12 +1,8 @@
-using LinearAlgebra
-using Diffusions: bcds2flatquats
-using Flux: batched_mul, batched_transpose
-using CUDA
-
+"""
+Returns the rotation matrix form of N flat quaternions. 
+"""
 function rotmatrix_from_quat(q)
-    """
-    Returns the rotation matrix form of N flat quaternions. 
-    """
+ 
     sx = 2q[1, :] .* q[2, :]
     sy = 2q[1, :] .* q[3, :]
     sz = 2q[1, :] .* q[4, :]
@@ -34,61 +30,113 @@ function rotmatrix_from_quat(q)
     return reshape(vcat(r1, r4, r7, r2, r5, r8, r3, r6, r9), 3, 3, :)
 end
 
-Typ = Float32
+"""
+Gets N random rotation matrices formatted as an array of size 3x3xN. 
+"""
+get_rotation(N, M; T = Float32) = reshape(rotmatrix_from_quat(bcds2flatquats(randn(T,3,N*M))),3,3,N,M)
+get_rotation(N; T = Float32) = reshape(rotmatrix_from_quat(bcds2flatquats(randn(T, 3,N))),3,3,N)
 
-function get_rotation(M, N)
-    """
-    Gets M x N random rotation matrices formatted as an array of size 3x3xMxN. 
-    """
-    return Typ.(reshape(rotmatrix_from_quat(bcds2flatquats(randn(3,M*N))),3,3,M,N))
-end
-function get_rotation(N) return Typ.(reshape(rotmatrix_from_quat(bcds2flatquats(randn(3,N))),3,3,N)) end
-function get_translation(M, N)
-    """
-    Gets M x N random translations formatted as an array of size 3x1xMxN.
-    """
-    return Typ.(randn(3,1, M, N))
-end
-function get_translation(N) return Typ.(randn(3,1,N)) end
+"""
+Gets N random translations formatted as an array of size 3x1xN (for purposes of broadcasting to arrays of size 3 x m x N)
+"""
+get_translation(N,M; T = Float32) = randn(T,3,1,N,M)
+get_translation(N; T = Float32) = randn(T, 3,1,N) 
 
 
+""" 
+Applies the SE3 transformations T = (rot,trans) ∈ SE(E3)^N
+to N batches of m points in R3, i.e., mat ∈ R^(3 x m x N) ↦ T(mat) ∈ R^(3 x m x N).
+Note here that rotations here are represented in matrix form. 
+"""
 function T_R3(mat, rot,trans)
-    """ 
-    Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N to m batches of N points in R3, i.e., mat ∈ R^(3 x N x m) ↦ T(mat) ∈ R^(3 x N x m).
-    """
     size_mat = size(mat)
     rotc = reshape(rot, 3,3,:)  
     trans = reshape(trans, 3,1,:)
-    matc = reshape(mat,3,size(mat,2),:)
-    batched_mul(rotc, matc)
-    rotated_mat = batched_mul(rotc,matc) .+ trans
-    
+    matc = reshape(mat,3,size(mat,2),:) 
+    batched_mul(gpu(rotc), matc)
+    if trans != 0
+        rotated_mat = batched_mul(gpu(rotc),matc) .+ gpu(trans)
+    else 
+        rotated_mat = batched_mul(rotc,matc)
+    end
     return reshape(rotated_mat,size_mat)
 end 
 
+
+""" 
+Applys the group inverse of the SE3 transformations T = (rot,trans) ∈ SE(3)^N to N batches of m points in R3,
+i.e., mat ∈ R^(3 x m x N) ↦ T^(-1)(mat) ∈ R^(3 x m x N) such that T(T^-1(mat)) = mat = T^-1(T(mat)). 
+Note here that rotations here are represented in matrix form.  
+"""
 function T_R3_inv(mat,rot,trans)
-    """ 
-    Applys the group inverse of the SE3 transformations T = (rot,trans) ∈ SE(3)^N to N batches of m points in R3, i.e., if T = (R, t) then T^(-1) = (R^T, -R^T*t).
-    """
     size_mat = size(mat)
     rotc = batched_transpose(reshape(rot, 3,3,:))
     matc = reshape(mat,3,size(mat,2),:)
     trans = reshape(trans, 3,1,:)
-    rot_trans = batched_mul(rotc,trans)
-    rotated_mat = batched_mul(rotc,matc) .- rot_trans
-
+    if trans != 0
+        rot_trans = batched_mul(rotc,trans)
+        rotated_mat = batched_mul(rotc,matc) .- rot_trans
+    else 
+        rotated_mat = batched_mul(rotc,matc)
+    end
     return reshape(rotated_mat,size_mat)
 end
 
+"""
+Returns the composition of two SE(3) transformations T_1 and T_2. Note that if T1 = (R1,t1), and T2 = (R2,t2) then T1*T2 = (R1*R2, R1*t2 + t1).
+T here is stored as a tuple (R,t).
+"""
 function T_T(T_1, T_2)
-    """
-    Returns the composition of two SE(3) transformations T_1 and T_2. Note that if T1 = (R1,t1), and T2 = (R2,t2) then T1*T2 = (R1*R2, R1*t2 + t1).
-    T here is stored as a tuple (R,t).
-    """
-    R1, t1 = T_1
+    R1, t1 = T_1 
     R2, t2 = T_2
-    new_rot = batched_mul(R1, R2)
-    new_trans = batched_mul(R1,t2) .+ t1
-
+    new_rot = Flux.batched_mul(R1,R2)
+    new_trans = Flux.batched_mul(R1,t2) .+ t1
     return (new_rot,new_trans)
 end
+
+"""
+Creates a quaternion (as a vector) from a triplet of values (pirated from Diffusions.jl)
+"""
+function bcds2flatquats(bcd::AbstractArray{<: Real, 2})
+    denom = sqrt.(1 .+ bcd[1,:].^2 .+ bcd[2,:].^2 .+ bcd[3,:].^2)
+    return vcat((1 ./ denom)', bcd ./ denom')
+end
+
+"""
+Takes a 6-dim vec and maps to a rotation matrix and translation vector, which is then applied to the input frames.
+"""
+function update_frame(Ti, arr)
+    bcds = reshape(arr[:,1,:,:],3,:)
+    rotmat = rotmatrix_from_quat(bcds2flatquats(bcds)) 
+    T_new = (
+        reshape(rotmat,3,3,size(si,2),:),
+        reshape(arr[:,2,:,:],3,1,size(si,2),:)
+            )
+    T = T_T(Ti,T_new)
+    return T
+end
+
+function trace_batch_mean(x::AbstractArray)
+    trace_sum = 0
+    for i in axes(x,3)
+        trace_sum += tr(x[:,:,i])
+    end
+    return trace_sum / size(x,3)
+end
+
+function rott_diff_loss(Rhat, R)
+    loss_sum = 0
+    for i in axes(x,3)
+        acos_term = (tr(Rhat[:,:,i] * transpose(R[:,:,i])) - 1)/2
+        if abs(1- min(acos_term,1)) < 1e-6
+            rot_diff = 0
+        elseif abs(-1 - max(acos_term,-1)) < 1e-6
+            rot_diff = Float32(3.14159265)
+        else 
+            rot_diff = acos(acos_term)
+        end
+        loss_sum += rot_diff
+    end
+    return loss_sum 
+end
+

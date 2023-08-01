@@ -1,8 +1,13 @@
 module InvariantPointAttention
-using Statistics, Distances
-using Flux, CUDA
-using Diffusions: bcds2flatquats
-using LinearAlgebra, Plots
+using LinearAlgebra
+using StatsBase
+using Flux
 
-include("attention.jl")
-end 
+include("rotational_utils.jl")
+include("layers.jl")
+
+export IPA
+export IPAStructureModuleLayer
+export BackboneUpdate
+
+end
