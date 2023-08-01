@@ -5,7 +5,7 @@ struct BackboneUpdate
     layers::NamedTuple
 end
 Flux.@functor BackboneUpdate
-function BackboneUpdate(s_dim)
+function BackboneUpdate(s_dim::Int)
     layers = (
         linear = Dense(s_dim => 6), 
     )
@@ -16,6 +16,7 @@ function (backboneupdate::BackboneUpdate)(Ti, si)
     T = update_frame(Ti, arr)
     return T
 end
+
 
 IPA_settings(
     dims;
@@ -34,6 +35,7 @@ IPA_settings(
     c_z = c_z,
     Typ = Typ
 )
+
 
 """
 Invariant Point Attention
@@ -157,6 +159,7 @@ end
 Partial Structure Module - single layer - from AF2. Not a faithful repro, and doesn't include the losses etc.
 """
 struct IPAStructureModuleLayer
+    settings::NamedTuple
     layers::NamedTuple
 end
 Flux.@functor IPAStructureModuleLayer
@@ -169,7 +172,7 @@ function IPAStructureModuleLayer(settings::NamedTuple; dropout_p = 0.1, af = Flu
         trans_norm = Chain(Dropout(dropout_p), LayerNorm(dims)),
         backbone = BackboneUpdate(dims),
     )
-    return IPAStructureModuleLayer(layers)
+    return IPAStructureModuleLayer(settings, layers)
 end
 function (structuremodulelayer::IPAStructureModuleLayer)(Ti, si; zij = nothing)
     if settings.c_z > 0 && zij == nothing

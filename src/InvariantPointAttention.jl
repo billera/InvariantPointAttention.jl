@@ -9,5 +9,6 @@ include("layers.jl")
 export IPA
 export IPAStructureModuleLayer
 export BackboneUpdate
+export IPA_settings
 
 end
