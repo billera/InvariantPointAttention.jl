@@ -12,12 +12,15 @@ function BackboneUpdate(s_dim::Int)
     return BackboneUpdate(layers)
 end
 function (backboneupdate::BackboneUpdate)(Ti, si)
-    arr = backboneupdate.layers.linear(si)
+    bu = backboneupdate.layers.linear(si)
+    arr = reshape(bu,3,2,size(si,2),:) 
     T = update_frame(Ti, arr)
     return T
 end
 
-
+"""
+Returns a tuple of the IPA settings, with defaults for everything except dims. This can be passed to the IPA and IPAStructureModuleLayer.
+"""
 IPA_settings(
     dims;
     c = 16,
@@ -33,9 +36,9 @@ IPA_settings(
     N_query_points = N_query_points,
     N_point_values = N_point_values,
     c_z = c_z,
-    Typ = Typ
+    Typ = Typ,
+    pairwise = c_z > 0
 )
-
 
 """
 Invariant Point Attention
@@ -48,12 +51,7 @@ end
 Flux.@functor IPA # provides parameter collection, gpu movement and more
 
 function IPA(settings::NamedTuple)
-    dims, c, N_head, N_query_points, N_point_values, c_z, Typ = settings
-    if c_z == 0
-        pairwise = false
-    else
-        pairwise = true
-    end    
+    dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = settings 
     # Needs a slighyly unusual initialization - hat-tip: Kenta
     init = Flux.kaiming_uniform(gain = 1.0)
     if pairwise
@@ -81,8 +79,7 @@ end
 function (ipa::IPA)(Ti::Tuple{AbstractArray,AbstractArray}, si::AbstractArray; zij = nothing)
     # Get relevant parameters from our ipa struct.
     l = ipa.layers
-    c, N_head, N_query_points, N_point_values, c_z = ipa.settings.c, ipa.settings.N_head, ipa.settings.N_query_points, ipa.settings.N_point_values, ipa.settings.c_z
-    pairwise, Typ = ipa.settings.pairwise, ipa.settings.Typ
+    dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
     rot_Ti, translate_Ti = Ti
     
     N_frames = size(si,2)
@@ -175,16 +172,17 @@ function IPAStructureModuleLayer(settings::NamedTuple; dropout_p = 0.1, af = Flu
     return IPAStructureModuleLayer(settings, layers)
 end
 function (structuremodulelayer::IPAStructureModuleLayer)(Ti, si; zij = nothing)
-    if settings.c_z > 0 && zij == nothing
+    settings = structuremodulelayer.settings
+    if settings.c_z > 0 && zij === nothing
         error("zij must be provided if c_z > 0")
     end
 
     l = structuremodulelayer.layers
 
     if zij === nothing
-        si = si .+ ipa(Ti, si)
+        si = si .+ l.ipa(Ti, si)
     else
-        si = si .+ ipa(Ti, si, zij = zij)
+        si = si .+ l.ipa(Ti, si, zij = zij)
     end
     si = l.ipa_norm(si)
     si = si .+ l.trans(si)

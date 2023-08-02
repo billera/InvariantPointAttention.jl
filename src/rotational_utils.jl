@@ -97,7 +97,7 @@ end
 """
 Creates a quaternion (as a vector) from a triplet of values (pirated from Diffusions.jl)
 """
-function bcds2flatquats(bcd::AbstractArray{<: Real, 2})
+function bcds2quats(bcd::AbstractArray{<: Real, 2})
     denom = sqrt.(1 .+ bcd[1,:].^2 .+ bcd[2,:].^2 .+ bcd[3,:].^2)
     return vcat((1 ./ denom)', bcd ./ denom')
 end
@@ -107,10 +107,10 @@ Takes a 6-dim vec and maps to a rotation matrix and translation vector, which is
 """
 function update_frame(Ti, arr)
     bcds = reshape(arr[:,1,:,:],3,:)
-    rotmat = rotmatrix_from_quat(bcds2flatquats(bcds)) 
+    rotmat = rotmatrix_from_quat(bcds2quats(bcds))  
     T_new = (
-        reshape(rotmat,3,3,size(si,2),:),
-        reshape(arr[:,2,:,:],3,1,size(si,2),:)
+        reshape(rotmat,3,3,size(arr,3),:),
+        reshape(arr[:,2,:,:],3,1,size(arr,3),:)
             )
     T = T_T(Ti,T_new)
     return T
