@@ -1,17 +1,59 @@
-name: CompatHelper
-
+name: CI
 on:
-  schedule:
-    - cron: '00 00 * * *'
-
+  push:
+    branches:
+      - main
+    tags: ['*']
+  pull_request:
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
-  CompatHelper:
-    runs-on: ubuntu-latest
+  test:
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - '1.9'
+          - 'nightly'
+        os:
+          - ubuntu-latest
+        arch:
+          - x64
     steps:
-      - name: Pkg.add("CompatHelper")
-        run: julia -e 'using Pkg; Pkg.add("CompatHelper")'
-      - name: CompatHelper.main()
+      - uses: actions/checkout@v2
+      - uses: julia-actions/setup-julia@v1
+        with:
+          version: ${{ matrix.version }}
+          arch: ${{ matrix.arch }}
+      - uses: julia-actions/cache@v1
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+      - uses: julia-actions/julia-processcoverage@v1
+      - uses: codecov/codecov-action@v2
+        with:
+          files: lcov.info
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v2
+      - uses: julia-actions/setup-julia@v1
+        with:
+          version: '1'
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COMPATHELPER_PRIV: ${{ secrets.DOCUMENTER_KEY }}
-        run: julia -e 'using CompatHelper; CompatHelper.main()'
+      - run: |
+          julia --project=docs -e '
+            using Documenter: DocMeta, doctest
+            using InvariantPointAttention
+            DocMeta.setdocmeta!(InvariantPointAttention, :DocTestSetup, :(using InvariantPointAttention); recursive=true)
+            doctest(InvariantPointAttention)'
