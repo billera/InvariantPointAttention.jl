@@ -31,10 +31,18 @@ function rotmatrix_from_quat(q)
 end
 
 """
+Creates a quaternion (as a vector) from a triplet of values (pirated from Diffusions.jl)
+"""
+function bcds2quats(bcd::AbstractArray{<: Real, 2})
+    denom = sqrt.(1 .+ bcd[1,:].^2 .+ bcd[2,:].^2 .+ bcd[3,:].^2)
+    return vcat((1 ./ denom)', bcd ./ denom')
+end
+
+"""
 Gets N random rotation matrices formatted as an array of size 3x3xN. 
 """
-get_rotation(N, M; T = Float32) = reshape(rotmatrix_from_quat(bcds2flatquats(randn(T,3,N*M))),3,3,N,M)
-get_rotation(N; T = Float32) = reshape(rotmatrix_from_quat(bcds2flatquats(randn(T, 3,N))),3,3,N)
+get_rotation(N, M; T = Float32) = reshape(rotmatrix_from_quat(bcds2quats(randn(T,3,N*M))),3,3,N,M)
+get_rotation(N; T = Float32) = reshape(rotmatrix_from_quat(bcds2quats(randn(T, 3,N))),3,3,N)
 
 """
 Gets N random translations formatted as an array of size 3x1xN (for purposes of broadcasting to arrays of size 3 x m x N)
@@ -92,14 +100,6 @@ function T_T(T_1, T_2)
     new_rot = Flux.batched_mul(R1,R2)
     new_trans = Flux.batched_mul(R1,t2) .+ t1
     return (new_rot,new_trans)
-end
-
-"""
-Creates a quaternion (as a vector) from a triplet of values (pirated from Diffusions.jl)
-"""
-function bcds2quats(bcd::AbstractArray{<: Real, 2})
-    denom = sqrt.(1 .+ bcd[1,:].^2 .+ bcd[2,:].^2 .+ bcd[3,:].^2)
-    return vcat((1 ./ denom)', bcd ./ denom')
 end
 
 """
