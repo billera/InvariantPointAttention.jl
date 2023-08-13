@@ -39,13 +39,13 @@ function bcds2quats(bcd::AbstractArray{<: Real, 2})
 end
 
 """
-Gets N random rotation matrices formatted as an array of size 3x3xN. 
+Generates random rotation matrices of given size.  
 """
 get_rotation(N, M; T = Float32) = reshape(rotmatrix_from_quat(bcds2quats(randn(T,3,N*M))),3,3,N,M)
 get_rotation(N; T = Float32) = reshape(rotmatrix_from_quat(bcds2quats(randn(T, 3,N))),3,3,N)
 
 """
-Gets N random translations formatted as an array of size 3x1xN (for purposes of broadcasting to arrays of size 3 x m x N)
+Generates random translations of given size.
 """
 get_translation(N,M; T = Float32) = randn(T,3,1,N,M)
 get_translation(N; T = Float32) = randn(T, 3,1,N) 
@@ -61,44 +61,33 @@ function T_R3(mat, rot,trans)
     rotc = reshape(rot, 3,3,:)  
     trans = reshape(trans, 3,1,:)
     matc = reshape(mat,3,size(mat,2),:) 
-    batched_mul(gpu(rotc), matc)
-    if trans != 0
-        rotated_mat = batched_mul(gpu(rotc),matc) .+ gpu(trans)
-    else 
-        rotated_mat = batched_mul(rotc,matc)
-    end
+    rotated_mat = batched_mul(rotc,matc) .+ trans
     return reshape(rotated_mat,size_mat)
 end 
 
 
 """ 
-Applys the group inverse of the SE3 transformations T = (rot,trans) ∈ SE(3)^N to N batches of m points in R3,
-i.e., mat ∈ R^(3 x m x N) ↦ T^(-1)(mat) ∈ R^(3 x m x N) such that T(T^-1(mat)) = mat = T^-1(T(mat)). 
-Note here that rotations here are represented in matrix form.  
+Applys the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N batches of m points in R3,
+such that T^-1(T*x) = T^-1(Rx+t) =  R^T(Rx+t-t) = x.
 """
 function T_R3_inv(mat,rot,trans)
     size_mat = size(mat)
     rotc = batched_transpose(reshape(rot, 3,3,:))
     matc = reshape(mat,3,size(mat,2),:)
     trans = reshape(trans, 3,1,:)
-    if trans != 0
-        rot_trans = batched_mul(rotc,trans)
-        rotated_mat = batched_mul(rotc,matc) .- rot_trans
-    else 
-        rotated_mat = batched_mul(rotc,matc)
-    end
+    rotated_mat = batched_mul(rotc,matc .- trans)
+
     return reshape(rotated_mat,size_mat)
 end
 
 """
-Returns the composition of two SE(3) transformations T_1 and T_2. Note that if T1 = (R1,t1), and T2 = (R2,t2) then T1*T2 = (R1*R2, R1*t2 + t1).
-T here is stored as a tuple (R,t).
+Returns the composition of two SE(3) transformations T_1 and T_2. If T1 = (R1,t1), and T2 = (R2,t2) then T1*T2 = (R1*R2, R1*t2 + t1).
 """
 function T_T(T_1, T_2)
     R1, t1 = T_1 
     R2, t2 = T_2
-    new_rot = Flux.batched_mul(R1,R2)
-    new_trans = Flux.batched_mul(R1,t2) .+ t1
+    new_rot = batched_mul(R1,R2)
+    new_trans = reshape(batched_mul(R1,t2), size(t1)) .+ t1
     return (new_rot,new_trans)
 end
 
@@ -115,28 +104,3 @@ function update_frame(Ti, arr)
     T = T_T(Ti,T_new)
     return T
 end
-
-function trace_batch_mean(x::AbstractArray)
-    trace_sum = 0
-    for i in axes(x,3)
-        trace_sum += tr(x[:,:,i])
-    end
-    return trace_sum / size(x,3)
-end
-
-function rott_diff_loss(Rhat, R)
-    loss_sum = 0
-    for i in axes(x,3)
-        acos_term = (tr(Rhat[:,:,i] * transpose(R[:,:,i])) - 1)/2
-        if abs(1- min(acos_term,1)) < 1e-6
-            rot_diff = 0
-        elseif abs(-1 - max(acos_term,-1)) < 1e-6
-            rot_diff = Float32(3.14159265)
-        else 
-            rot_diff = acos(acos_term)
-        end
-        loss_sum += rot_diff
-    end
-    return loss_sum 
-end
-
