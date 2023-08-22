@@ -1,12 +1,13 @@
 using LinearAlgebra
 using StatsBase
 using Flux
+using Flux:unsqueeze
 using CUDA
 
 include("../src/layers.jl")
 include("../src/rotational_utils.jl")
 
-len_L, len_R, dim, batch = 10,10,128,5
+len_L, len_R, dim, batch = 5, 5, 4, 10
 T_L = (get_rotation(len_L, batch), randn(3,len_L, batch)) 
 T_R = (get_rotation(len_R, batch), randn(3,len_R, batch))
 S_L = randn(dim,len_L, batch)
@@ -26,9 +27,10 @@ params = Flux.params(ipca)
 for i in 1:1000
     loss, grads = Flux.withgradient(Flux.params(ipca)) do
         # For structure model output is T,s ; for layer output is s 
-        s = ipca(T_L, S_L, T_L, S_L)
+        s = ipca(T_L, S_L, T_R, S_R)
         mean(s)
     end 
 end
 
-CUDA.memory_status() # ≈ 100% GPU memory usage, and doesn't go down after stopping. 
+
+# CUDA.memory_status()
