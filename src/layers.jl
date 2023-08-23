@@ -99,14 +99,14 @@ end
 """
 Self-IPA can be run from both IPA and cross IPA, allowing for flexibility. Simply calls cross IPA on itself. 
 """
-function (ipa::Union{IPA, IPCrossA})(T::Tuple{AbstractArray,AbstractArray}, S::AbstractArray; Z = nothing)
-    return ipa(T, S, T, S; zij = Z)
+function (ipa::Union{IPA, IPCrossA})(T::Tuple{AbstractArray,AbstractArray}, S::AbstractArray; Z = nothing, mask = 0)
+    return ipa(T, S, T, S; zij = Z, mask = mask)
 end
 
 
 #Attention props from L (Keys, Values) to R (Queries).
 #Because IPA uses Q'K, our pairwise matrices are R-by-L
-function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing)
+function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0)
     if zij != nothing
         #This is assuming the dims of zij are c, N_frames_L, N_frames_R, batch
         @assert size(zij,2) == size(siR,2)
@@ -139,7 +139,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     # Dot products between queries and keys.
                         #FramesR, c, N_head, Batch
     qhT = permutedims(qh, (3, 1, 2, 4))
-                         #c, FramesR, N_head, Batch
+                         #c, FramesL, N_head, Batch
     kh = permutedims(kh, (1, 3, 2, 4))
     qhTkh = permutedims(#FramesR, #FramesL, N_head, Batch
                         batched_mul(qhT,kh)
@@ -156,19 +156,25 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     
 
     att_arg = reshape(dim_scale .* qhTkh .- w_C/2 .* gamma_h .* sum_norms_glob,(N_head,N_frames_R,N_frames_L, :))
+    
     if pairwise
         w_L = Typ(sqrt(1/3))
         bij = reshape(l.pair(zij),(N_head,N_frames_R,N_frames_L,:))
-        att = Flux.softmax(w_L .* (att_arg .+ bij), dims = 3) 
     else
         w_L = Typ(sqrt(1/2))
-        att = Flux.softmax(w_L .* att_arg, dims = 3)
+        bij = Typ(0)
     end
+
+    # Setting mask to the correct dim for broadcasting. 
+    if mask != 0 
+        mask = reshape(mask, 1, N_frames_L, N_frames_R, 1) 
+    end
+    
+    att = Flux.softmax(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
 
     # Applying the attention weights to the values.
     broadcast_att_oh = reshape(att,(1,N_head,N_frames_R,N_frames_L,:))
     broadcast_vh = reshape(vh, (c,N_head,1,N_frames_L,:))
-
     oh = reshape(sum(broadcast_att_oh .* broadcast_vh,dims = 4), c,N_head,N_frames_R,:)
 
     broadcast_att_ohp = reshape(att,(1,N_head,1,N_frames_R,N_frames_L,:))
@@ -194,7 +200,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
         catty = vcat(catty, reshape(obh, N_head*c_z, N_frames_R,:))
     end
     
-    si = l.ipa_linear(catty)
+    si = l.ipa_linear(catty) 
     return si 
 end
 

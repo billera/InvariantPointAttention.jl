@@ -104,3 +104,13 @@ function update_frame(Ti, arr)
     T = T_T(Ti,T_new)
     return T
 end
+
+"""
+Returns an N_frames x N_frames lower triangular matrix, with -Inf instead of zeros in the upper half. 
+This is added to the argument of the attention weight softmax, resulting in all right to left communication being zeroed out, while retaining the softmax distribution for nonzero values. 
+"""
+function right_to_left_mask(N_frames::Int64)
+    mask = fill(-Inf, N_frames, N_frames)
+    mask[tril!(trues(N_frames, N_frames))] .= 1
+    return mask
+end
