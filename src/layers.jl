@@ -178,7 +178,6 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     oh = reshape(sum(broadcast_att_oh .* broadcast_vh,dims = 4), c,N_head,N_frames_R,:)
 
     broadcast_att_ohp = reshape(att,(1,N_head,1,N_frames_R,N_frames_L,:))
-
     broadcast_tvhp = reshape(Tvhp,(3,N_head,N_point_values,1,N_frames_L,:))
 
     ohp_r = reshape(sum(broadcast_att_ohp.*broadcast_tvhp,dims=5),3,N_head*N_point_values,N_frames_R,:)
@@ -191,7 +190,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
         reshape(oh, N_head*c, N_frames_R,:),
         reshape(ohp, 3*N_head*N_point_values, N_frames_R,:),
         reshape(normed_ohp, N_head*N_point_values, N_frames_R,:)
-        )
+        ) 
     
     if pairwise
         broadcast_zij = reshape(zij,(c_z,1,N_frames_R,N_frames_L,:))
@@ -239,24 +238,24 @@ function IPAStructureModuleLayer(settings::NamedTuple)
     crossL = IPCrossAStructureModuleLayer(settings)
     return IPAStructureModuleLayer(crossL.settings, crossL.layers)
 end
-function (structuremodulelayer::Union{IPAStructureModuleLayer, IPCrossAStructureModuleLayer} )(T, S; zij = nothing)
+function (structuremodulelayer::Union{IPAStructureModuleLayer, IPCrossAStructureModuleLayer} )(T, S; zij = nothing, mask = 0)
     return structuremodulelayer(T, S, T, S; zij = zij)
 end
 
 """
 Cross IPA Partial Structure Module - single layer - adapted from AF2. From left to right. 
 """
-function (structuremodulelayer::Union{IPCrossAStructureModuleLayer, IPAStructureModuleLayer})(T_L, S_L, T_R, S_R; zij = nothing)
+function (structuremodulelayer::Union{IPCrossAStructureModuleLayer, IPAStructureModuleLayer})(T_L, S_L, T_R, S_R; zij = nothing, mask = 0)
     settings = structuremodulelayer.settings
     if settings.c_z > 0 && zij === nothing
         error("zij must be provided if c_z > 0")
     end
 
     l = structuremodulelayer.layers
-    S_R = S_R .+ l.ipa(T_L, S_L,T_R,S_R, zij = zij)
-    S_R = l.ipa_norm(S_R)
-    S_R = S_R .+ l.trans(S_R)
-    S_R = l.trans_norm(S_R)
-    T_R = l.backbone(T_R, S_R)
+    S_R = S_R .+ l.ipa(T_L, S_L,T_R,S_R, zij = zij, mask = mask) 
+    S_R = l.ipa_norm(S_R) 
+    S_R = S_R .+ l.trans(S_R) 
+    S_R = l.trans_norm(S_R) 
+    T_R = l.backbone(T_R, S_R) 
     return T_R, S_R
 end
