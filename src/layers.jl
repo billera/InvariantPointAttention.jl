@@ -239,7 +239,7 @@ function IPAStructureModuleLayer(settings::NamedTuple)
     return IPAStructureModuleLayer(crossL.settings, crossL.layers)
 end
 function (structuremodulelayer::Union{IPAStructureModuleLayer, IPCrossAStructureModuleLayer} )(T, S; zij = nothing, mask = 0)
-    return structuremodulelayer(T, S, T, S; zij = zij)
+    return structuremodulelayer(T, S, T, S; zij = zij, mask = mask)
 end
 
 """
