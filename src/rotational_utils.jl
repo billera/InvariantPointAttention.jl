@@ -114,3 +114,58 @@ function right_to_left_mask(N_frames::Int64)
     mask[tril!(trues(N_frames, N_frames))] .= 1
     return mask
 end
+
+unzip(a) = map(x->getfield.(a, x), fieldnames(eltype(a)))
+
+calculate_residue_centroid(residue_xyz::AbstractMatrix) = reshape(mean(residue_xyz[:, 1:3], dims = 2), 3)
+
+"""
+Get frame from residue
+"""
+function calculate_residue_rotation_and_translation(residue_xyz::AbstractMatrix)
+    # Returns the rotation matrix and the translation of a gien residue. 
+    N = residue_xyz[:, 1]
+    Ca = residue_xyz[:, 2] # We use the centroid instead of the Ca - not 100% sure if this is correct
+    C = residue_xyz[:, 3]
+
+    t = calculate_residue_centroid(residue_xyz)
+
+    v1 = C - t
+    v2 = N - t
+    e1 = normalize(v1)
+    u2 = v2 - e1 * (e1'v2)
+    e2 = normalize(u2)
+    e3 = cross(e1,e2)
+    R = hcat(e1, e2, e3)
+    return R, t
+end
+
+"""
+Get the assosciated SE(3) frame for all residues in a prot
+"""
+function get_T(protxyz::Array{<:Real, 3}) 
+    ti = stack.(unzip([calculate_residue_rotation_and_translation(protxyz[:,:,i]) for i in axes(protxyz,3)]))
+    return (ti[1],reshape(ti[2],3,1,:))
+end
+
+"""
+Get the assosciated SE(3) frames for all residues in a batch of prots 
+"""
+function get_T_batch(protxyz::Array{<:Real, 4})
+    rots = zeros(3,3,size(protxyz)[3:4]...)
+    trans = zeros(3,1,size(protxyz)[3:4]...)
+    for j in axes(protxyz,4)
+        Tij = get_T(protxyz[:,:,:,j])
+        rots[:,:,:,j] = Tij[1]
+        trans[:,:,:,j] = Tij[2]
+    end
+    return (rots, trans)
+end
+
+"""
+Index into a T up to index i. 
+"""
+function T_till(T,i)
+    Tr, Tt = T[1][:,:,1:i,:], T[2][:,:,1:i,:]
+    return Tr, Tt
+end
