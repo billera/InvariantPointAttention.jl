@@ -111,6 +111,8 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
         #This is assuming the dims of zij are c, N_frames_L, N_frames_R, batch
         @assert size(zij,2) == size(siR,2)
         @assert size(zij,3) == size(siL,2) 
+        @assert size(mask,1) == size(siR, 2)
+        @assert size(mask,2) == size(siL, 2)
     end
     
     # Get relevant parameters from our ipa struct.
