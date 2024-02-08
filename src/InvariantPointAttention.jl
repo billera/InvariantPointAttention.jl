@@ -7,7 +7,7 @@ using Flux:unsqueeze
 
 include("rotational_utils.jl")
 include("layers.jl")
-incldue("masks.jl")
+include("masks.jl")
 
 export IPA
 export IPAStructureModuleLayer
