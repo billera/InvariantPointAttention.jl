@@ -172,7 +172,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
 
     # Setting mask to the correct dim for broadcasting. 
     if mask != 0 
-        mask = reshape(mask, 1, N_frames_R, N_frames_L, 1) 
+        mask = unsqueeze(mask, dims = 1) 
     end
 
     att = Flux.softmax(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
