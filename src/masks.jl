@@ -20,16 +20,20 @@ function left_to_right_mask(L::T, R::T; step::T = 10) where T <: Integer
     mask = ones(L,R) .* -Inf32
     for i in 1:R
         for j in 1:L
-            mask[j,i] = j < 10*(i-1) ? -Inf : 0
+            mask[j,i] = j < step*(i-1) ? -Inf : 0
         end
     end
     return mask
 end
 
 
-function virtual_residues(S::AbstractArray, T::Tuple{AbstractArray, AbstractArray}; step = 10)
+function virtual_residues(S::AbstractArray, T::Tuple{AbstractArray, AbstractArray}; step = 10, rand_start = false)
     Nr = size(S,2)
-    vr = 1:step:Nr
+    start = 1
+    if rand_start 
+        start = sample(1:step)
+    end
+    vr = start:step:Nr
     S_virt = S[:,vr,:]
     T_virt = (T[1][:,:,vr,:], T[2][:,:,vr,:])
     return S_virt, T_virt
