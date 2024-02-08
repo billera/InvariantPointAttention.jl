@@ -105,16 +105,6 @@ function update_frame(Ti, arr)
     return T
 end
 
-"""
-Returns an N_frames x N_frames lower triangular matrix, with -Inf instead of zeros in the upper half. 
-This is added to the argument of the attention weight softmax, resulting in all right to left communication being zeroed out, while retaining the softmax distribution for nonzero values. 
-"""
-function right_to_left_mask(N_frames::Int64)
-    mask = fill(-Inf, N_frames, N_frames)
-    mask[tril!(trues(N_frames, N_frames))] .= 1
-    return mask
-end
-
 unzip(a) = map(x->getfield.(a, x), fieldnames(eltype(a)))
 
 calculate_residue_centroid(residue_xyz::AbstractMatrix) = reshape(mean(residue_xyz[:, 1:3], dims = 2), 3)

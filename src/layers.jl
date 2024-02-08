@@ -107,10 +107,13 @@ end
 #Attention props from L (Keys, Values) to R (Queries).
 #Because IPA uses Q'K, our pairwise matrices are R-by-L
 function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0)
+   
     if zij != nothing
         #This is assuming the dims of zij are c, N_frames_L, N_frames_R, batch
         @assert size(zij,2) == size(siR,2)
         @assert size(zij,3) == size(siL,2) 
+    end
+    if mask != 0
         @assert size(mask,1) == size(siR, 2)
         @assert size(mask,2) == size(siL, 2)
     end
