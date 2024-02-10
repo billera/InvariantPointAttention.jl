@@ -72,7 +72,7 @@ function IPCrossA(settings::NamedTuple)
             proj_vhp = Dense(dims => 3*N_head*N_point_values, bias = false; init),
             ipa_linear = ipa_linear,
             pair = pair,
-            gamma_h = ones(Typ, N_head) .* Typ(0.541)
+            gamma_h = min.(ones(Typ, N_head) .* Typ(0.541),1f2)
             )
     
     return IPCrossA(settings, layers)
@@ -128,7 +128,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     N_frames_L = size(siL,2)
     N_frames_R = size(siR,2)
 
-    gamma_h = min.(softplus(l.gamma_h),1f3)
+    gamma_h = softplus(l.gamma_h)
 
     w_C = Typ(sqrt(2/(9*N_query_points)))
     dim_scale = Typ(1/sqrt(c))
