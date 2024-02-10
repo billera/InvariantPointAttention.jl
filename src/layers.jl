@@ -128,7 +128,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     N_frames_L = size(siL,2)
     N_frames_R = size(siR,2)
 
-    gamma_h = softplus(l.gamma_h)
+    gamma_h = min.(softplus(l.gamma_h),1f2)
 
     w_C = Typ(sqrt(2/(9*N_query_points)))
     dim_scale = Typ(1/sqrt(c))
