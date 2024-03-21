@@ -264,3 +264,83 @@ function (structuremodulelayer::Union{IPCrossAStructureModuleLayer, IPAStructure
     T_R = l.backbone(T_R, S_R) 
     return T_R, S_R
 end
+
+struct IPACache
+    sizeL
+    sizeR
+    batchsize
+
+    # cached arrays
+    qh  # channel × head × residues (R) × batch   
+    kh  # channel × head × residues (L) × batch
+    vh  # channel × head × residues (L) × batch
+
+    #qhp  # 3 × head × query points × residues (R) × batch
+    #khp  # 3 × head × query points × residues (L) × batch
+    #vhp  # 3 × head × query points × residues (L) × batch
+end
+
+function IPACache(settings, batchsize)
+    (; c, N_head, N_query_points, N_point_values) = settings
+    qh = zeros(Float32, c, N_head, 0, batchsize)
+    kh = zeros(Float32, c, N_head, 0, batchsize)
+    vh = zeros(Float32, c, N_head, 0, batchsize)
+    #qhp = zeros(Float32, 3, N_head, N_query_points, 0, batchsize)
+    #khp = zeros(Float32, 3, N_head, N_query_points, 0, batchsize)
+    #vhp = zeros(Float32, 3, N_head, N_query_points, 0, batchsize)
+    IPACache(0, 0, batchsize, qh, kh, vh, #=qhp, khp, vhp,=# )
+end
+
+function expand(
+    ipa::IPCrossA,
+    cache::IPACache,
+    TiL::Tuple, siL::AbstractArray, ΔL::Integer,
+    TiR::Tuple, siR::AbstractArray, ΔR::Integer,
+)
+    dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
+    L, R, batchsize = cache.sizeL, cache.sizeR, cache.batchsize
+
+    layer = ipa.layers
+    Δqh = reshape(layer.proj_qh(@view siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, :))
+    Δkh = reshape(layer.proj_kh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, :))
+    Δvh = reshape(layer.proj_vh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, :))
+
+    kh = cat(cache.kh, Δkh, dims = 3)
+    vh = cat(cache.vh, Δvh, dims = 3)
+
+    # calculate inner products
+    ΔqhT = permutedims(Δqh, (3, 1, 2, 4))
+    kh = permutedims(kh, (1, 3, 2, 4))
+    ΔqhTkh = permutedims(batched_mul(ΔqhT, kh), (3, 1, 2, 4))
+
+    dim_scale = Float32(1/sqrt(c))
+    Δatt_logits = reshape(dim_scale .* ΔqhTkh, (N_head, ΔR, L + ΔL, batchsize))
+
+    w_L = Float32(sqrt(1/2))  # TODO
+    Δatt = softmax(w_L .* Δatt_logits, dims = 3)
+
+    # take the attention weighted sum of the value vectors
+    oh = sumdrop(
+        reshape(Δatt, (1, N_head, ΔR, L + ΔL, batchsize)) .*
+        reshape(  vh, (c, N_head,  1, L + ΔL, batchsize)),
+        dims = 4,
+    )
+
+    o = cat(
+        reshape(oh, (c * N_head, ΔR, batchsize)),
+        zeros(Float32, (4 * N_point_values * N_head, ΔR, batchsize)),
+        dims = 1,
+    )
+    cache = IPACache(
+        L + ΔL,
+        R + ΔR,
+        batchsize,
+        cat(cache.qh, Δqh, dims = 3),
+        cat(cache.kh, Δkh, dims = 3),
+        cat(cache.vh, Δvh, dims = 3),
+    )
+
+    layer.ipa_linear(o), cache
+end
+
+sumdrop(x; dims) = dropdims(sum(x; dims); dims)
