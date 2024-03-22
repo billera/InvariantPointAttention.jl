@@ -139,7 +139,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
     khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
-    
+
     # This should be Q'K, following IPA, which isn't like the regular QK'
     # Dot products between queries and keys.
                         #FramesR, c, N_head, Batch
@@ -275,9 +275,9 @@ struct IPACache
     kh  # channel × head × residues (L) × batch
     vh  # channel × head × residues (L) × batch
 
-    #qhp  # 3 × head × query points × residues (R) × batch
-    #khp  # 3 × head × query points × residues (L) × batch
-    #vhp  # 3 × head × query points × residues (L) × batch
+    qhp  # 3 × {head × query points} × residues (R) × batch
+    khp  # 3 × {head × query points} × residues (L) × batch
+    vhp  # 3 × {head × point values} × residues (L) × batch
 end
 
 function IPACache(settings, batchsize)
@@ -285,10 +285,10 @@ function IPACache(settings, batchsize)
     qh = zeros(Float32, c, N_head, 0, batchsize)
     kh = zeros(Float32, c, N_head, 0, batchsize)
     vh = zeros(Float32, c, N_head, 0, batchsize)
-    #qhp = zeros(Float32, 3, N_head, N_query_points, 0, batchsize)
-    #khp = zeros(Float32, 3, N_head, N_query_points, 0, batchsize)
-    #vhp = zeros(Float32, 3, N_head, N_query_points, 0, batchsize)
-    IPACache(0, 0, batchsize, qh, kh, vh, #=qhp, khp, vhp,=# )
+    qhp = zeros(Float32, 3, N_head * N_query_points, 0, batchsize)
+    khp = zeros(Float32, 3, N_head * N_query_points, 0, batchsize)
+    vhp = zeros(Float32, 3, N_head * N_point_values, 0, batchsize)
+    IPACache(0, 0, batchsize, qh, kh, vh, qhp, khp, vhp)
 end
 
 function expand(
@@ -301,22 +301,49 @@ function expand(
     L, R, batchsize = cache.sizeL, cache.sizeR, cache.batchsize
 
     layer = ipa.layers
-    Δqh = reshape(layer.proj_qh(@view siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, :))
-    Δkh = reshape(layer.proj_kh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, :))
-    Δvh = reshape(layer.proj_vh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, :))
+
+    gamma_h = min.(softplus(layer.gamma_h), 1f2)
+
+    Δqh = reshape(layer.proj_qh(@view siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, batchsize))
+    Δkh = reshape(layer.proj_kh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, batchsize))
+    Δvh = reshape(layer.proj_vh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, batchsize))
+
+    Δqhp = reshape(layer.proj_qhp(@view siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, batchsize))
+    Δkhp = reshape(layer.proj_khp(@view siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, batchsize))
+    Δvhp = reshape(layer.proj_vhp(@view siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, batchsize))
 
     kh = cat(cache.kh, Δkh, dims = 3)
     vh = cat(cache.vh, Δvh, dims = 3)
+
+    khp = cat(cache.khp, Δkhp, dims = 3)
+    vhp = cat(cache.vhp, Δvhp, dims = 3)
 
     # calculate inner products
     ΔqhT = permutedims(Δqh, (3, 1, 2, 4))
     kh = permutedims(kh, (1, 3, 2, 4))
     ΔqhTkh = permutedims(batched_mul(ΔqhT, kh), (3, 1, 2, 4))
 
-    dim_scale = Float32(1/sqrt(c))
-    Δatt_logits = reshape(dim_scale .* ΔqhTkh, (N_head, ΔR, L + ΔL, batchsize))
+    # transform vector points to the global frames
+    rot_TiL, translate_TiL = TiL
+    rot_TiR, translate_TiR = TiR
+    ΔTqhp = reshape(T_R3(Δqhp, @view(rot_TiR[:,:,R+1:R+ΔR,:]), @view(translate_TiR[:,:,R+1:R+ΔR,:])), (3, N_head, N_query_points, ΔR, batchsize))
+    Tkhp = reshape(
+        T_R3(reshape(khp, (3, N_head * N_query_points, (L + ΔL) * batchsize)), @view(rot_TiL[:,:,1:L+ΔL,:]), @view(translate_TiL[:,:,1:L+ΔL,:])),
+        (3, N_head, N_query_points, L + ΔL, batchsize)
+    )
+    Tvhp = reshape(
+        T_R3(reshape(vhp, (3, N_head * N_point_values, (L + ΔL) * batchsize)), @view(rot_TiL[:,:,1:L+ΔL,:]), @view(translate_TiL[:,:,1:L+ΔL,:])),
+        (3, N_head, N_point_values, L + ΔL, batchsize)
+    )
 
-    w_L = Float32(sqrt(1/2))  # TODO
+    diffs = unsqueeze(ΔTqhp, dims = 5) .- unsqueeze(Tkhp, dims = 4)
+    sum_norms = sumdrop(abs2, diffs, dims = (1, 3))
+
+    w_C = sqrt(2f0 / 9N_query_points)
+    dim_scale = sqrt(1f0 / c)
+    Δatt_logits = reshape(dim_scale .* ΔqhTkh .- w_C/2 .* gamma_h .* sum_norms, (N_head, ΔR, L + ΔL, batchsize))
+
+    w_L = sqrt(1f0/2)  # TODO
     Δatt = softmax(w_L .* Δatt_logits, dims = 3)
 
     # take the attention weighted sum of the value vectors
@@ -325,12 +352,30 @@ function expand(
         reshape(  vh, (c, N_head,  1, L + ΔL, batchsize)),
         dims = 4,
     )
-
-    o = cat(
-        reshape(oh, (c * N_head, ΔR, batchsize)),
-        zeros(Float32, (4 * N_point_values * N_head, ΔR, batchsize)),
-        dims = 1,
+    ohp = reshape(
+        T_R3_inv(
+            reshape(
+                # 3 × N_head × N_point_values × ΔR × batch
+                sumdrop(
+                    reshape(Δatt, (1, N_head,              1, ΔR, L + ΔL, batchsize)) .*
+                    reshape(Tvhp, (3, N_head, N_point_values,  1, L + ΔL, batchsize)),
+                    dims = 5,
+                ),
+                (3, N_head * N_point_values, ΔR * batchsize)
+            ),
+            @view(rot_TiR[:,:,R+1:R+ΔR,:]),
+            @view(translate_TiR[:,:,R+1:R+ΔR,:])
+        ),
+        (3, N_head, N_point_values, ΔR, batchsize)
     )
+    ohp_norms = sqrt.(sumdrop(abs2, ohp, dims = 1))
+
+    # concatenate all outputs
+    o = [
+        reshape(oh, (c * N_head, ΔR, batchsize))
+        reshape(ohp, (3 * N_head * N_point_values, ΔR, batchsize))
+        reshape(ohp_norms, (N_head * N_point_values, ΔR, batchsize))
+    ]
     cache = IPACache(
         L + ΔL,
         R + ΔR,
@@ -338,9 +383,13 @@ function expand(
         cat(cache.qh, Δqh, dims = 3),
         cat(cache.kh, Δkh, dims = 3),
         cat(cache.vh, Δvh, dims = 3),
+        cat(cache.qhp, Δqhp, dims = 3),
+        cat(cache.khp, Δkhp, dims = 3),
+        cat(cache.vhp, Δvhp, dims = 3),
     )
 
     layer.ipa_linear(o), cache
 end
 
 sumdrop(x; dims) = dropdims(sum(x; dims); dims)
+sumdrop(f, x; dims) = dropdims(sum(f, x; dims); dims)
