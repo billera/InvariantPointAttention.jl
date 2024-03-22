@@ -296,7 +296,8 @@ function expand(
     cache::IPACache,
     TiL::Tuple, siL::AbstractArray, ΔL::Integer,
     TiR::Tuple, siR::AbstractArray, ΔR::Integer;
-    zij = nothing
+    zij = nothing,
+    mask = 0,
 )
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
     L, R, B = cache.sizeL, cache.sizeR, cache.batchsize
@@ -344,13 +345,17 @@ function expand(
     dim_scale = sqrt(1f0 / c)
     Δatt_logits = reshape(dim_scale .* ΔqhTkh .- w_C/2 .* gamma_h .* sum_norms, (N_head, ΔR, L + ΔL, B))
 
+    if mask != 0
+        mask = unsqueeze(@view(mask[R+1:R+ΔR,1:L+ΔL]), dims = 1)
+    end
+
     if pairwise
         bij = reshape(layer.pair(@view(zij[:,R+1:R+ΔR,1:L+ΔL,:])), (N_head, ΔR, L + ΔL, B))
         w_L = sqrt(1f0/3)
-        Δatt = softmax(w_L .* (Δatt_logits .+ bij), dims = 3)
+        Δatt = softmax(w_L .* (Δatt_logits .+ bij) .+ mask, dims = 3)
     else
         w_L = sqrt(1f0/2)
-        Δatt = softmax(w_L .* Δatt_logits, dims = 3)
+        Δatt = softmax(w_L .* Δatt_logits .+ mask, dims = 3)
     end
 
     # take the attention weighted sum of the value vectors
