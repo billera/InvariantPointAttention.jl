@@ -280,7 +280,12 @@ struct IPACache
     vhp  # 3 × {head × point values} × residues (L) × batch
 end
 
-function IPACache(settings, batchsize)
+"""
+    IPACache(settings, batchsize)
+
+Initialize an empty IPA cache.
+"""
+function IPACache(settings::NamedTuple, batchsize::Integer)
     (; c, N_head, N_query_points, N_point_values) = settings
     qh = zeros(Float32, c, N_head, 0, batchsize)
     kh = zeros(Float32, c, N_head, 0, batchsize)
@@ -301,18 +306,17 @@ function expand(
 )
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
     L, R, B = cache.sizeL, cache.sizeR, cache.batchsize
-
     layer = ipa.layers
 
     gamma_h = min.(softplus(layer.gamma_h), 1f2)
 
-    Δqh = reshape(layer.proj_qh(@view siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, B))
-    Δkh = reshape(layer.proj_kh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
-    Δvh = reshape(layer.proj_vh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
+    Δqh = reshape(calldense(layer.proj_qh, @view siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, B))
+    Δkh = reshape(calldense(layer.proj_kh, @view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
+    Δvh = reshape(calldense(layer.proj_vh, @view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
 
-    Δqhp = reshape(layer.proj_qhp(@view siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
-    Δkhp = reshape(layer.proj_khp(@view siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
-    Δvhp = reshape(layer.proj_vhp(@view siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
+    Δqhp = reshape(calldense(layer.proj_qhp, @view siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
+    Δkhp = reshape(calldense(layer.proj_khp, @view siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
+    Δvhp = reshape(calldense(layer.proj_vhp, @view siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
 
     kh = cat(cache.kh, Δkh, dims = 3)
     vh = cat(cache.vh, Δvh, dims = 3)
@@ -418,3 +422,9 @@ end
 
 sumdrop(x; dims) = dropdims(sum(x; dims); dims)
 sumdrop(f, x; dims) = dropdims(sum(f, x; dims); dims)
+
+# dense(x) to avoid https://github.com/FluxML/Flux.jl/issues/2407
+function calldense(dense::Dense, x::AbstractArray)
+    d1 = size(dense.weight, 1)
+    reshape(dense(reshape(x, size(x, 1), :)), d1, size(x)[2:end]...)
+end
