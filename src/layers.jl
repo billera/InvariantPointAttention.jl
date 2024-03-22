@@ -299,19 +299,19 @@ function expand(
     zij = nothing
 )
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
-    L, R, batchsize = cache.sizeL, cache.sizeR, cache.batchsize
+    L, R, B = cache.sizeL, cache.sizeR, cache.batchsize
 
     layer = ipa.layers
 
     gamma_h = min.(softplus(layer.gamma_h), 1f2)
 
-    Δqh = reshape(layer.proj_qh(@view siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, batchsize))
-    Δkh = reshape(layer.proj_kh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, batchsize))
-    Δvh = reshape(layer.proj_vh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, batchsize))
+    Δqh = reshape(layer.proj_qh(@view siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, B))
+    Δkh = reshape(layer.proj_kh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
+    Δvh = reshape(layer.proj_vh(@view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
 
-    Δqhp = reshape(layer.proj_qhp(@view siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, batchsize))
-    Δkhp = reshape(layer.proj_khp(@view siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, batchsize))
-    Δvhp = reshape(layer.proj_vhp(@view siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, batchsize))
+    Δqhp = reshape(layer.proj_qhp(@view siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
+    Δkhp = reshape(layer.proj_khp(@view siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
+    Δvhp = reshape(layer.proj_vhp(@view siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
 
     kh = cat(cache.kh, Δkh, dims = 3)
     vh = cat(cache.vh, Δvh, dims = 3)
@@ -327,14 +327,14 @@ function expand(
     # transform vector points to the global frames
     rot_TiL, translate_TiL = TiL
     rot_TiR, translate_TiR = TiR
-    ΔTqhp = reshape(T_R3(Δqhp, @view(rot_TiR[:,:,R+1:R+ΔR,:]), @view(translate_TiR[:,:,R+1:R+ΔR,:])), (3, N_head, N_query_points, ΔR, batchsize))
+    ΔTqhp = reshape(T_R3(Δqhp, @view(rot_TiR[:,:,R+1:R+ΔR,:]), @view(translate_TiR[:,:,R+1:R+ΔR,:])), (3, N_head, N_query_points, ΔR, B))
     Tkhp = reshape(
-        T_R3(reshape(khp, (3, N_head * N_query_points, (L + ΔL) * batchsize)), @view(rot_TiL[:,:,1:L+ΔL,:]), @view(translate_TiL[:,:,1:L+ΔL,:])),
-        (3, N_head, N_query_points, L + ΔL, batchsize)
+        T_R3(reshape(khp, (3, N_head * N_query_points, (L + ΔL) * B)), @view(rot_TiL[:,:,1:L+ΔL,:]), @view(translate_TiL[:,:,1:L+ΔL,:])),
+        (3, N_head, N_query_points, L + ΔL, B)
     )
     Tvhp = reshape(
-        T_R3(reshape(vhp, (3, N_head * N_point_values, (L + ΔL) * batchsize)), @view(rot_TiL[:,:,1:L+ΔL,:]), @view(translate_TiL[:,:,1:L+ΔL,:])),
-        (3, N_head, N_point_values, L + ΔL, batchsize)
+        T_R3(reshape(vhp, (3, N_head * N_point_values, (L + ΔL) * B)), @view(rot_TiL[:,:,1:L+ΔL,:]), @view(translate_TiL[:,:,1:L+ΔL,:])),
+        (3, N_head, N_point_values, L + ΔL, B)
     )
 
     diffs = unsqueeze(ΔTqhp, dims = 5) .- unsqueeze(Tkhp, dims = 4)
@@ -342,10 +342,10 @@ function expand(
 
     w_C = sqrt(2f0 / 9N_query_points)
     dim_scale = sqrt(1f0 / c)
-    Δatt_logits = reshape(dim_scale .* ΔqhTkh .- w_C/2 .* gamma_h .* sum_norms, (N_head, ΔR, L + ΔL, batchsize))
+    Δatt_logits = reshape(dim_scale .* ΔqhTkh .- w_C/2 .* gamma_h .* sum_norms, (N_head, ΔR, L + ΔL, B))
 
     if pairwise
-        bij = reshape(layer.pair(@view(zij[:,R+1:R+ΔR,1:L+ΔL,:])), (N_head, ΔR, L + ΔL, batchsize))
+        bij = reshape(layer.pair(@view(zij[:,R+1:R+ΔR,1:L+ΔL,:])), (N_head, ΔR, L + ΔL, B))
         w_L = sqrt(1f0/3)
         Δatt = softmax(w_L .* (Δatt_logits .+ bij), dims = 3)
     else
@@ -355,8 +355,8 @@ function expand(
 
     # take the attention weighted sum of the value vectors
     oh = sumdrop(
-        reshape(Δatt, (1, N_head, ΔR, L + ΔL, batchsize)) .*
-        reshape(  vh, (c, N_head,  1, L + ΔL, batchsize)),
+        reshape(Δatt, (1, N_head, ΔR, L + ΔL, B)) .*
+        reshape(  vh, (c, N_head,  1, L + ΔL, B)),
         dims = 4,
     )
     ohp = reshape(
@@ -364,35 +364,35 @@ function expand(
             reshape(
                 # 3 × N_head × N_point_values × ΔR × batch
                 sumdrop(
-                    reshape(Δatt, (1, N_head,              1, ΔR, L + ΔL, batchsize)) .*
-                    reshape(Tvhp, (3, N_head, N_point_values,  1, L + ΔL, batchsize)),
+                    reshape(Δatt, (1, N_head,              1, ΔR, L + ΔL, B)) .*
+                    reshape(Tvhp, (3, N_head, N_point_values,  1, L + ΔL, B)),
                     dims = 5,
                 ),
-                (3, N_head * N_point_values, ΔR * batchsize)
+                (3, N_head * N_point_values, ΔR * B)
             ),
             @view(rot_TiR[:,:,R+1:R+ΔR,:]),
             @view(translate_TiR[:,:,R+1:R+ΔR,:])
         ),
-        (3, N_head, N_point_values, ΔR, batchsize)
+        (3, N_head, N_point_values, ΔR, B)
     )
     ohp_norms = sqrt.(sumdrop(abs2, ohp, dims = 1))
 
     # concatenate all outputs
     o = [
-        reshape(oh, (c * N_head, ΔR, batchsize))
-        reshape(ohp, (3 * N_head * N_point_values, ΔR, batchsize))
-        reshape(ohp_norms, (N_head * N_point_values, ΔR, batchsize))
+        reshape(oh, (c * N_head, ΔR, B))
+        reshape(ohp, (3 * N_head * N_point_values, ΔR, B))
+        reshape(ohp_norms, (N_head * N_point_values, ΔR, B))
     ]
     if pairwise
         o = [
             o
             reshape(
                 sumdrop(
-                    reshape(                           Δatt, (  1, N_head, ΔR, L + ΔL, batchsize)) .*
-                    reshape(@view(zij[:,R+1:R+ΔR,1:L+ΔL,:]), (c_z,      1, ΔR, L + ΔL, batchsize)),
+                    reshape(                           Δatt, (  1, N_head, ΔR, L + ΔL, B)) .*
+                    reshape(@view(zij[:,R+1:R+ΔR,1:L+ΔL,:]), (c_z,      1, ΔR, L + ΔL, B)),
                     dims = 4
                 ),
-                (c_z * N_head, ΔR, batchsize)
+                (c_z * N_head, ΔR, B)
             )
         ]
     end
@@ -400,7 +400,7 @@ function expand(
     cache = IPACache(
         L + ΔL,
         R + ΔR,
-        batchsize,
+        B,
         cat(cache.qh, Δqh, dims = 3),
         cat(cache.kh, Δkh, dims = 3),
         cat(cache.vh, Δvh, dims = 3),
