@@ -295,7 +295,8 @@ function expand(
     ipa::IPCrossA,
     cache::IPACache,
     TiL::Tuple, siL::AbstractArray, ΔL::Integer,
-    TiR::Tuple, siR::AbstractArray, ΔR::Integer,
+    TiR::Tuple, siR::AbstractArray, ΔR::Integer;
+    zij = nothing
 )
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
     L, R, batchsize = cache.sizeL, cache.sizeR, cache.batchsize
@@ -343,8 +344,14 @@ function expand(
     dim_scale = sqrt(1f0 / c)
     Δatt_logits = reshape(dim_scale .* ΔqhTkh .- w_C/2 .* gamma_h .* sum_norms, (N_head, ΔR, L + ΔL, batchsize))
 
-    w_L = sqrt(1f0/2)  # TODO
-    Δatt = softmax(w_L .* Δatt_logits, dims = 3)
+    if pairwise
+        bij = reshape(layer.pair(@view(zij[:,R+1:R+ΔR,1:L+ΔL,:])), (N_head, ΔR, L + ΔL, batchsize))
+        w_L = sqrt(1f0/3)
+        Δatt = softmax(w_L .* (Δatt_logits .+ bij), dims = 3)
+    else
+        w_L = sqrt(1f0/2)
+        Δatt = softmax(w_L .* Δatt_logits, dims = 3)
+    end
 
     # take the attention weighted sum of the value vectors
     oh = sumdrop(
@@ -376,6 +383,20 @@ function expand(
         reshape(ohp, (3 * N_head * N_point_values, ΔR, batchsize))
         reshape(ohp_norms, (N_head * N_point_values, ΔR, batchsize))
     ]
+    if pairwise
+        o = [
+            o
+            reshape(
+                sumdrop(
+                    reshape(                           Δatt, (  1, N_head, ΔR, L + ΔL, batchsize)) .*
+                    reshape(@view(zij[:,R+1:R+ΔR,1:L+ΔL,:]), (c_z,      1, ΔR, L + ΔL, batchsize)),
+                    dims = 4
+                ),
+                (c_z * N_head, ΔR, batchsize)
+            )
+        ]
+    end
+
     cache = IPACache(
         L + ΔL,
         R + ΔR,
@@ -387,7 +408,6 @@ function expand(
         cat(cache.khp, Δkhp, dims = 3),
         cat(cache.vhp, Δvhp, dims = 3),
     )
-
     layer.ipa_linear(o), cache
 end
 
