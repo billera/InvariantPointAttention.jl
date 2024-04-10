@@ -128,7 +128,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     N_frames_L = size(siL,2)
     N_frames_R = size(siR,2)
 
-    gamma_h = min.(softplus(l.gamma_h),1f2)
+    gamma_h = softplus(clamp.(l.gamma_h,Typ(-100), Typ(100))) #Clamping
 
     w_C = Typ(sqrt(2/(9*N_query_points)))
     dim_scale = Typ(1/sqrt(c))
@@ -189,7 +189,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
 
     #ohp_r were in the global frame, so we put those back in the recipient local
     ohp = T_R3_inv(ohp_r, rot_TiR, translate_TiR) 
-    normed_ohp = sqrt.(sum(ohp.^2,dims = 1))
+    normed_ohp = sqrt.(sum(ohp.^2,dims = 1) .+ Typ(0.000001f0)) #Adding eps
 
     catty = vcat(
         reshape(oh, N_head*c, N_frames_R,:),
