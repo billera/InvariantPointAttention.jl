@@ -310,13 +310,13 @@ function expand(
 
     gamma_h = min.(softplus(layer.gamma_h), 1f2)
 
-    Δqh = reshape(calldense(layer.proj_qh, @view siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, B))
-    Δkh = reshape(calldense(layer.proj_kh, @view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
-    Δvh = reshape(calldense(layer.proj_vh, @view siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
+    Δqh = reshape(calldense(layer.proj_qh, siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, B))
+    Δkh = reshape(calldense(layer.proj_kh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
+    Δvh = reshape(calldense(layer.proj_vh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
 
-    Δqhp = reshape(calldense(layer.proj_qhp, @view siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
-    Δkhp = reshape(calldense(layer.proj_khp, @view siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
-    Δvhp = reshape(calldense(layer.proj_vhp, @view siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
+    Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
+    Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
+    Δvhp = reshape(calldense(layer.proj_vhp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
 
     kh = cat(cache.kh, Δkh, dims = 3)
     vh = cat(cache.vh, Δvh, dims = 3)
@@ -332,13 +332,13 @@ function expand(
     # transform vector points to the global frames
     rot_TiL, translate_TiL = TiL
     rot_TiR, translate_TiR = TiR
-    ΔTqhp = reshape(T_R3(Δqhp, @view(rot_TiR[:,:,R+1:R+ΔR,:]), @view(translate_TiR[:,:,R+1:R+ΔR,:])), (3, N_head, N_query_points, ΔR, B))
+    ΔTqhp = reshape(T_R3(Δqhp, (rot_TiR[:,:,R+1:R+ΔR,:]), (translate_TiR[:,:,R+1:R+ΔR,:])), (3, N_head, N_query_points, ΔR, B))
     Tkhp = reshape(
-        T_R3(reshape(khp, (3, N_head * N_query_points, (L + ΔL) * B)), @view(rot_TiL[:,:,1:L+ΔL,:]), @view(translate_TiL[:,:,1:L+ΔL,:])),
+        T_R3(reshape(khp, (3, N_head * N_query_points, (L + ΔL) * B)), (rot_TiL[:,:,1:L+ΔL,:]), (translate_TiL[:,:,1:L+ΔL,:])),
         (3, N_head, N_query_points, L + ΔL, B)
     )
     Tvhp = reshape(
-        T_R3(reshape(vhp, (3, N_head * N_point_values, (L + ΔL) * B)), @view(rot_TiL[:,:,1:L+ΔL,:]), @view(translate_TiL[:,:,1:L+ΔL,:])),
+        T_R3(reshape(vhp, (3, N_head * N_point_values, (L + ΔL) * B)), (rot_TiL[:,:,1:L+ΔL,:]), (translate_TiL[:,:,1:L+ΔL,:])),
         (3, N_head, N_point_values, L + ΔL, B)
     )
 
@@ -350,11 +350,11 @@ function expand(
     Δatt_logits = reshape(dim_scale .* ΔqhTkh .- w_C/2 .* gamma_h .* sum_norms, (N_head, ΔR, L + ΔL, B))
 
     if mask != 0
-        mask = unsqueeze(@view(mask[R+1:R+ΔR,1:L+ΔL]), dims = 1)
+        mask = unsqueeze((mask[R+1:R+ΔR,1:L+ΔL]), dims = 1)
     end
 
     if pairwise
-        bij = reshape(layer.pair(@view(zij[:,R+1:R+ΔR,1:L+ΔL,:])), (N_head, ΔR, L + ΔL, B))
+        bij = reshape(layer.pair((zij[:,R+1:R+ΔR,1:L+ΔL,:])), (N_head, ΔR, L + ΔL, B))
         w_L = sqrt(1f0/3)
         Δatt = softmax(w_L .* (Δatt_logits .+ bij) .+ mask, dims = 3)
     else
@@ -379,8 +379,8 @@ function expand(
                 ),
                 (3, N_head * N_point_values, ΔR * B)
             ),
-            @view(rot_TiR[:,:,R+1:R+ΔR,:]),
-            @view(translate_TiR[:,:,R+1:R+ΔR,:])
+            (rot_TiR[:,:,R+1:R+ΔR,:]),
+            (translate_TiR[:,:,R+1:R+ΔR,:])
         ),
         (3, N_head, N_point_values, ΔR, B)
     )
@@ -398,7 +398,7 @@ function expand(
             reshape(
                 sumdrop(
                     reshape(                           Δatt, (  1, N_head, ΔR, L + ΔL, B)) .*
-                    reshape(@view(zij[:,R+1:R+ΔR,1:L+ΔL,:]), (c_z,      1, ΔR, L + ΔL, B)),
+                    reshape((zij[:,R+1:R+ΔR,1:L+ΔL,:]), (c_z,      1, ΔR, L + ΔL, B)),
                     dims = 4
                 ),
                 (c_z * N_head, ΔR, B)
