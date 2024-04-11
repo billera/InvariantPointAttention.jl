@@ -279,6 +279,7 @@ struct IPACache
     khp  # 3 × {head × query points} × residues (L) × batch
     vhp  # 3 × {head × point values} × residues (L) × batch
 end
+Flux.@functor IPACache
 
 """
     IPACache(settings, batchsize)
