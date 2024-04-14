@@ -1,3 +1,19 @@
+
+"""
+softmax1(x, dims = 1)
+
+Behaves like softmax, but as though there was an additional logit of zero along dims (which is excluded from the output). So the values will sum to a value between zero and 1.
+"""
+function softmax1(x::AbstractArray{T}; dims = 1) where {T}
+    _zero = T(0)
+    max_ = max.(maximum(x; dims), _zero)
+    @fastmath out = exp.(x .- max_)
+    tmp = sum(out, dims = dims)
+    out ./ (tmp + exp.(-max_))
+end
+
+
+
 """
 Projects the frame embedding => 6, and uses this to transform the input frames.
 """
@@ -28,7 +44,8 @@ IPA_settings(
     N_query_points = 4,
     N_point_values = 8,
     c_z = 0,
-    Typ = Float32
+    Typ = Float32,
+    use_softmax1 = false
 ) = (
     dims = dims,
     c = c,
@@ -37,7 +54,8 @@ IPA_settings(
     N_point_values = N_point_values,
     c_z = c_z,
     Typ = Typ,
-    pairwise = c_z > 0
+    pairwise = c_z > 0,
+    use_softmax1 = use_softmax1
 )
 
 
@@ -121,6 +139,11 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     # Get relevant parameters from our ipa struct.
     l = ipa.layers
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
+    if haskey(ipa.settings, :use_softmax1) #For compat
+        use_softmax1 = ipa.settings.use_softmax1
+    else
+        use_softmax1 = false
+    end
     
     rot_TiL, translate_TiL = TiL
     rot_TiR, translate_TiR = TiR
@@ -175,7 +198,11 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
         mask = unsqueeze(mask, dims = 1) 
     end
 
-    att = Flux.softmax(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
+    if use_softmax1
+        att = softmax1(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
+    else
+        att = Flux.softmax(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
+    end
 
     # Applying the attention weights to the values.
     broadcast_att_oh = reshape(att,(1,N_head,N_frames_R,N_frames_L,:))
@@ -185,7 +212,13 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     broadcast_att_ohp = reshape(att,(1,N_head,1,N_frames_R,N_frames_L,:))
     broadcast_tvhp = reshape(Tvhp,(3,N_head,N_point_values,1,N_frames_L,:))
 
-    ohp_r = reshape(sum(broadcast_att_ohp.*broadcast_tvhp,dims=5),3,N_head*N_point_values,N_frames_R,:)
+    if use_softmax1
+        pre_ohp_r = sum(broadcast_att_ohp.*broadcast_tvhp,dims=5)
+        unreshaped_ohp_r = pre_ohp_r .+ (1 .- sum(broadcast_att_ohp, dims = 5)) .* reshape(translate_TiR, 3, 1, 1, N_frames_R, 1, :)
+        ohp_r = reshape(unreshaped_ohp_r,3,N_head*N_point_values,N_frames_R,:)
+    else
+        ohp_r = reshape(sum(broadcast_att_ohp.*broadcast_tvhp,dims=5),3,N_head*N_point_values,N_frames_R,:)
+    end
 
     #ohp_r were in the global frame, so we put those back in the recipient local
     ohp = T_R3_inv(ohp_r, rot_TiR, translate_TiR) 

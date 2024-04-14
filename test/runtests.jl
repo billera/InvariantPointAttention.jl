@@ -4,7 +4,12 @@ using Test
 
 @testset "InvariantPointAttention.jl" begin
     # Write your tests here.
-
+    @testset "Softmax1" begin
+        #Check if softmax1 is consistent with softmax, when adding an additional zero logit
+        x = randn(4,3)
+        xaug = hcat(x, zeros(4,1))
+        @assert softmax1(x, dims = 2) ≈ softmax(xaug, dims = 2)[:,1:end-1]
+    end
 
     @testset "IPACache" begin
         dims = 8
