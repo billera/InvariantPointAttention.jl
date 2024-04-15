@@ -339,10 +339,17 @@ function expand(
     mask = 0,
 )
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
+    if haskey(ipa.settings, :use_softmax1) #For compat
+        use_softmax1 = ipa.settings.use_softmax1
+    else
+        use_softmax1 = false
+    end
+    
     L, R, B = cache.sizeL, cache.sizeR, cache.batchsize
     layer = ipa.layers
 
-    gamma_h = min.(softplus(layer.gamma_h), 1f2)
+    #gamma_h = min.(softplus(layer.gamma_h), 1f2)
+    gamma_h = softplus(clamp.(layer.gamma_h,Typ(-100), Typ(100))) #Clamping
 
     Δqh = reshape(calldense(layer.proj_qh, siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, B))
     Δkh = reshape(calldense(layer.proj_kh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
@@ -390,36 +397,71 @@ function expand(
     if pairwise
         bij = reshape(layer.pair((zij[:,R+1:R+ΔR,1:L+ΔL,:])), (N_head, ΔR, L + ΔL, B))
         w_L = sqrt(1f0/3)
-        Δatt = softmax(w_L .* (Δatt_logits .+ bij) .+ mask, dims = 3)
+        if use_softmax1
+            Δatt = softmax1(w_L .* (Δatt_logits .+ bij) .+ mask, dims = 3)
+        else
+            Δatt = softmax(w_L .* (Δatt_logits .+ bij) .+ mask, dims = 3)
+        end
     else
         w_L = sqrt(1f0/2)
-        Δatt = softmax(w_L .* Δatt_logits .+ mask, dims = 3)
+        if use_softmax1
+            Δatt = softmax1(w_L .* Δatt_logits .+ mask, dims = 3)
+        else
+            Δatt = softmax(w_L .* Δatt_logits .+ mask, dims = 3)
+        end
     end
 
     # take the attention weighted sum of the value vectors
+
+    #=
+    @show c, N_head, ΔR, L + ΔL, B
+    @show size(Δatt)
+    @show size(vh)
+    @show size(translate_TiR[:,:,R+1:R+ΔR,:])
+    @show (1 .- sum(Δatt, dims = 3))
+    =#
+
     oh = sumdrop(
         reshape(Δatt, (1, N_head, ΔR, L + ΔL, B)) .*
         reshape(  vh, (c, N_head,  1, L + ΔL, B)),
         dims = 4,
     )
+
+    if use_softmax1
+        ohp_pre = reshape(
+            # 3 × N_head × N_point_values × ΔR × batch
+            sumdrop(
+                reshape(Δatt,                           (1, N_head, 1,               ΔR, L + ΔL, B)) .*
+                reshape(Tvhp,                           (3, N_head, N_point_values,  1,  L + ΔL, B)) .+
+                reshape(translate_TiR[:,:,R+1:R+ΔR,:],  (3, 1,      1,               ΔR, 1,      B)) .*
+                reshape(1 .- sum(Δatt, dims = 3),       (1, N_head, 1,               ΔR, 1,      B)),
+                dims = 5,
+            ),
+            (3, N_head * N_point_values, ΔR * B)
+        )
+    else
+        ohp_pre = reshape(
+            # 3 × N_head × N_point_values × ΔR × batch
+            sumdrop(
+                reshape(Δatt, (1, N_head,              1, ΔR, L + ΔL, B)) .*
+                reshape(Tvhp, (3, N_head, N_point_values,  1, L + ΔL, B)),
+                dims = 5,
+            ),
+            (3, N_head * N_point_values, ΔR * B)
+        )
+    end
+
     ohp = reshape(
         T_R3_inv(
-            reshape(
-                # 3 × N_head × N_point_values × ΔR × batch
-                sumdrop(
-                    reshape(Δatt, (1, N_head,              1, ΔR, L + ΔL, B)) .*
-                    reshape(Tvhp, (3, N_head, N_point_values,  1, L + ΔL, B)),
-                    dims = 5,
-                ),
-                (3, N_head * N_point_values, ΔR * B)
-            ),
+            ohp_pre
+            ,
             (rot_TiR[:,:,R+1:R+ΔR,:]),
             (translate_TiR[:,:,R+1:R+ΔR,:])
         ),
         (3, N_head, N_point_values, ΔR, B)
     )
-    ohp_norms = sqrt.(sumdrop(abs2, ohp, dims = 1))
-
+    ohp_norms = sqrt.(sumdrop(abs2, ohp, dims = 1) .+ Typ(0.000001f0))
+    
     # concatenate all outputs
     o = [
         reshape(oh, (c * N_head, ΔR, B))
