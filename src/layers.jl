@@ -430,13 +430,13 @@ function expand(
     if use_softmax1
         ohp_pre = reshape(
             # 3 × N_head × N_point_values × ΔR × batch
-            sumdrop(
-                reshape(Δatt,                           (1, N_head, 1,               ΔR, L + ΔL, B)) .*
-                reshape(Tvhp,                           (3, N_head, N_point_values,  1,  L + ΔL, B)) .+
-                reshape(translate_TiR[:,:,R+1:R+ΔR,:],  (3, 1,      1,               ΔR, 1,      B)) .*
-                reshape(1 .- sum(Δatt, dims = 3),       (1, N_head, 1,               ΔR, 1,      B)),
-                dims = 5,
-            ),
+                sumdrop(
+                    reshape(Δatt,                           (1, N_head, 1,               ΔR, L + ΔL, B)) .*
+                    reshape(Tvhp,                           (3, N_head, N_point_values,  1,  L + ΔL, B)),
+                    dims =5,
+                )  .+
+                    reshape(translate_TiR[:,:,R+1:R+ΔR,:],  (3, 1,      1,               ΔR, B)) .*
+                    reshape(1 .- sum(Δatt, dims = 3),       (1, N_head, 1,               ΔR, B)),
             (3, N_head * N_point_values, ΔR * B)
         )
     else

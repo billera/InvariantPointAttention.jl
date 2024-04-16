@@ -1,5 +1,6 @@
 using InvariantPointAttention
 using InvariantPointAttention: get_rotation, get_translation
+using InvariantPointAttention: softmax1
 using Test
 
 @testset "InvariantPointAttention.jl" begin
@@ -126,5 +127,35 @@ using Test
         siR1, cache = InvariantPointAttention.expand(ipa, cache, TiL, siL, L, TiR, siR, 2; zij)
         siR2, cache = InvariantPointAttention.expand(ipa, cache, TiL, siL, 0, TiR, siR, 4; zij)
         @test cat(siR1, siR2, dims = 2) ≈ ipa(TiL, siL, TiR, siR; zij)
+    end
+
+    @testset "IPACache_softmax1_v2" begin 
+        dims = 8
+        c_z = 6
+        settings = IPA_settings(dims; c_z, use_softmax1 = true)
+         
+        # generate random data
+        L = 10
+        R = 10
+        B = 1
+        siL = randn(Float32, dims, L, B)
+        siR = siL
+        zij = randn(Float32, c_z, R, L, B)
+        TiL = (get_rotation(L, B), get_translation(L, B))
+        TiR = TiL
+         
+        # Left and right equal for self attention
+        TiL == TiR
+        siL == siR
+         
+        # Extend the cache along both left and right
+        ipa = IPCrossA(settings)
+        cache = InvariantPointAttention.IPACache(settings, B)
+        siRs = []
+        for i in 1:10
+            si, cache = InvariantPointAttention.expand(ipa, cache, TiL, siL, 1, TiR, siR, 1; zij)
+            push!(siRs, si)
+        end
+        @test cat(siRs..., dims = 2) ≈ ipa(TiL, siL, TiR, siR; zij, mask = right_to_left_mask(10))
     end
 end
