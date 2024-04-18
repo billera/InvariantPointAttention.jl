@@ -1,7 +1,7 @@
 using InvariantPointAttention
 using InvariantPointAttention: get_rotation, get_translation
 using InvariantPointAttention: softmax1
-using Flux:gradient
+using Zygote:gradient
 using Test
 
 @testset "InvariantPointAttention.jl" begin
