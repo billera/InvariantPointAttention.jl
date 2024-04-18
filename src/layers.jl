@@ -5,13 +5,14 @@ Behaves like softmax, but as though there was an additional logit of zero along 
 """
 function softmax1(x::AbstractArray{T}; dims = 1) where {T}
     _zero = T(0)
-    max_ = max.(NNlib.fast_maximum(x; dims), _zero)
+    max_ = max.(fast_maximum2(x; dims), _zero)
     @fastmath out = exp.(x .- max_)
     tmp = sum(out, dims = dims)
     out ./ (tmp + exp.(-max_))
 end
+# Pirated/adapted from NNlib
+fast_maximum2(x::AbstractArray{T}; dims) where {T} = @fastmath reduce(max, x; dims, init = float(T)(-Inf))
 
-# adapted from NNlib's softmax gradient: https://github.com/FluxML/NNlib.jl/blob/master/src/softmax.jl
 function ∇softmax1_data(dy::AbstractArray{T}, y::AbstractArray{S}; dims = 1) where {T,S}
     dx = if NNlib.within_gradient(y)
         tmp = dy .* y
