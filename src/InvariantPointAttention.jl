@@ -2,6 +2,8 @@ module InvariantPointAttention
 using LinearAlgebra
 using StatsBase
 using Flux
+using ChainRules
+using ChainRulesCore
 
 using Flux:unsqueeze
 
@@ -17,5 +19,6 @@ export IPCrossA
 export right_to_left_mask
 export left_to_right_mask 
 export virtual_residues
+export softmax1
 
 end
