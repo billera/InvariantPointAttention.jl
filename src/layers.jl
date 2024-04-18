@@ -1,4 +1,3 @@
-
 """
 softmax1(x, dims = 1)
 
@@ -6,13 +5,32 @@ Behaves like softmax, but as though there was an additional logit of zero along 
 """
 function softmax1(x::AbstractArray{T}; dims = 1) where {T}
     _zero = T(0)
-    max_ = max.(maximum(x; dims), _zero)
+    max_ = max.(NNlib.fast_maximum(x; dims), _zero)
     @fastmath out = exp.(x .- max_)
     tmp = sum(out, dims = dims)
     out ./ (tmp + exp.(-max_))
 end
 
+# adapted from NNlib's softmax gradient: https://github.com/FluxML/NNlib.jl/blob/master/src/softmax.jl
+function ∇softmax1_data(dy::AbstractArray{T}, y::AbstractArray{S}; dims = 1) where {T,S}
+    dx = if NNlib.within_gradient(y)
+        tmp = dy .* y
+        tmp .- y .* sum(tmp; dims)
+    else
+        # This path is faster, only safe for 1st derivatives though.
+        # Was previously `∇softmax!(dx, dy, x, y; dims)` to allow CUDA overloads,
+        # but that was slow: https://github.com/FluxML/NNlibCUDA.jl/issues/30
+        out = similar(y, promote_type(T,S))  # sure to be mutable
+        out .= dy .* y
+        out .= out .- y .* sum(out; dims)
+    end
+end
 
+function ChainRulesCore.rrule(::typeof(softmax1), x, (dims = 1))
+    y = softmax1(x; dims)
+    softmax_pullback(dy) = (NoTangent(), ∇softmax1_data(unthunk(dy), y; dims))
+    return y, softmax_pullback
+end
 
 """
 Projects the frame embedding => 6, and uses this to transform the input frames.

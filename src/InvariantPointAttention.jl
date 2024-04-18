@@ -2,6 +2,9 @@ module InvariantPointAttention
 using LinearAlgebra
 using StatsBase
 using Flux
+using ChainRules
+using ChainRulesCore
+using NNlib
 
 using Flux:unsqueeze
 
