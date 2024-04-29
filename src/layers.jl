@@ -104,16 +104,6 @@ Self-IPA can be run from both IPA and cross IPA, allowing for flexibility. Simpl
 function (ipa::Union{IPA, IPCrossA})(T::Tuple{AbstractArray,AbstractArray}, S::AbstractArray; Z = nothing, mask = 0)
     return ipa(T, S, T, S; zij = Z, mask = mask)
 end
-function t2(mat,rot,trans)
-    size_mat = size(mat)
-    rotc = batched_transpose(reshape(rot, 3,3,:))
-    matc = reshape(mat,3,size(mat,2),:)
-    trans = reshape(trans, 3,1,:)
-    rotated_mat = batched_mul(rotc,matc .- trans)
-
-    return reshape(rotated_mat,size_mat)
-end
-
 
 #Attention props from L (Keys, Values) to R (Queries).
 #Because IPA uses Q'K, our pairwise matrices are R-by-L

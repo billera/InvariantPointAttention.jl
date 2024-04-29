@@ -49,20 +49,21 @@ using Test
     end
 
     @testset "ipa_customgrad" begin
-        batch_size = 1
+        batch_size = 3
         framesL = 10
         framesR = 10
         dim = 10
         
         siL = Float32.(randn(dim,framesL,batch_size)) 
         siR = siL
-        
-        TiL = (get_rotation(framesL,batch_size), get_translation(framesL,batch_size)) 
+        # Use CLOPS.jl shape notation
+        TiL = (get_rotation(framesL,batch_size), randn(3,framesL,batch_size)) 
         TiR = TiL 
         zij = randn(Float32, 16, framesR, framesL, batch_size) 
 
         ipa = IPCrossA(IPA_settings(dim; use_softmax1 = true, c_z = 16)) 
-        mask = right_to_left_mask(framesL)
+        # Batching on mask
+        mask = right_to_left_mask(framesL)[:,:,repeat(1:1, inner = batch_size)]
         ps = params(ipa)
         
         lz,gs = withgradient(ps) do 
