@@ -2,6 +2,9 @@ using InvariantPointAttention
 using InvariantPointAttention: get_rotation, get_translation
 using InvariantPointAttention: softmax1
 using Zygote:gradient
+using Zygote:withgradient
+using Flux: params
+using InvariantPointAttention: T_R3, T_R3_inv, _T_R3_no_rrule, _T_R3_inv_no_rrule, diff_sum_glob, _diff_sum_glob_no_rrule
 using Test
 
 @testset "InvariantPointAttention.jl" begin
@@ -28,8 +31,53 @@ using Test
             g(x; dims = k) = sum(softmax1_no_rrule(x; dims))
             @test gradient(f, x)[1] ≈ gradient(g, x)[1]
         end
-    end 
+    end  
 
+    @testset "T_R3 custom grad" begin 
+        x = randn(3,5,10,15)
+        rot = get_rotation(10,15) 
+        trans = get_translation(10,15)
+
+        @test gradient(sum ∘ T_R3, x, rot, trans)[1] ≈ gradient(sum ∘ _T_R3_no_rrule, x, rot, trans)[1]
+    end
+
+    @testset "T_R3_inv custom grad" begin 
+        x = randn(3,5,10,15)
+        rot = get_rotation(10,15) 
+        trans = get_translation(10,15)
+        @test gradient(sum ∘ T_R3_inv, x, rot, trans)[1] ≈ gradient(sum ∘ _T_R3_inv_no_rrule, x, rot, trans)[1]
+    end
+
+    @testset "ipa_customgrad" begin
+        batch_size = 1
+        framesL = 10
+        framesR = 10
+        dim = 10
+        
+        siL = Float32.(randn(dim,framesL,batch_size)) 
+        siR = siL
+        
+        TiL = (get_rotation(framesL,batch_size), get_translation(framesL,batch_size)) 
+        TiR = TiL 
+        zij = randn(Float32, 16, framesR, framesL, batch_size) 
+
+        ipa = IPCrossA(IPA_settings(dim; use_softmax1 = true, c_z = 16)) 
+        mask = right_to_left_mask(framesL)
+        ps = params(ipa)
+        
+        lz,gs = withgradient(ps) do 
+            sum(ipa(TiL, siL, TiR, siR; zij, mask, customgrad = true))
+        end
+        
+        lz2, zygotegs = withgradient(ps) do 
+            sum(ipa(TiL, siL, TiR, siR; zij, mask, customgrad = false))
+        end
+        
+        for (gs, zygotegs) in zip(keys(gs),keys(zygotegs))
+            @test maximum(abs.(gs .- zygotegs)) < 1f-7
+        end
+        @test lz - lz2 < 1f-7
+    end
     @testset "IPAsoftmax_invariance" begin
         batch_size = 3
         framesL = 100

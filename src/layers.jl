@@ -139,12 +139,26 @@ Self-IPA can be run from both IPA and cross IPA, allowing for flexibility. Simpl
 function (ipa::Union{IPA, IPCrossA})(T::Tuple{AbstractArray,AbstractArray}, S::AbstractArray; Z = nothing, mask = 0)
     return ipa(T, S, T, S; zij = Z, mask = mask)
 end
+function t2(mat,rot,trans)
+    size_mat = size(mat)
+    rotc = batched_transpose(reshape(rot, 3,3,:))
+    matc = reshape(mat,3,size(mat,2),:)
+    trans = reshape(trans, 3,1,:)
+    rotated_mat = batched_mul(rotc,matc .- trans)
+
+    return reshape(rotated_mat,size_mat)
+end
 
 
 #Attention props from L (Keys, Values) to R (Queries).
 #Because IPA uses Q'K, our pairwise matrices are R-by-L
-function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0)
-   
+function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0, customgrad = true)
+    isnothing(zij) || mask == 0 || siL != siR || TiL != TiR ? customgrad = false : nothing
+
+    if customgrad == true
+        return ipa_customgrad(ipa, TiL, siL, TiR, siR, zij = zij, mask = mask)
+    end
+
     if zij != nothing
         #This is assuming the dims of zij are c, N_frames_L, N_frames_R, batch
         @assert size(zij,2) == size(siR,2)
@@ -194,16 +208,16 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
                             ,(3,1,2,4))
     
     # Applying our transformations to the queries, keys, and values to put them in the global frame.
-    Tqhp = reshape(T_R3(qhp, rot_TiR,translate_TiR),3,N_head,N_query_points,N_frames_R,:) 
-    Tkhp = reshape(T_R3(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
-    Tvhp = T_R3(vhp, rot_TiL, translate_TiL)
+    Tqhp = reshape(_T_R3_no_rrule(qhp, rot_TiR,translate_TiR),3,N_head,N_query_points,N_frames_R,:) 
+    Tkhp = reshape(_T_R3_no_rrule(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
+    Tvhp = _T_R3_no_rrule(vhp, rot_TiL, translate_TiL)
 
     diffs_glob = unsqueeze(Tqhp, dims = 5) .- unsqueeze(Tkhp, dims = 4)
     sum_norms_glob = reshape(sum(abs2, diffs_glob, dims = [1,3]),N_head,N_frames_R,N_frames_L,:) #Sum over points for each head
     
 
     att_arg = reshape(dim_scale .* qhTkh .- w_C/2 .* gamma_h .* sum_norms_glob,(N_head,N_frames_R,N_frames_L, :))
-    
+
     if pairwise
         w_L = Typ(sqrt(1/3))
         bij = reshape(l.pair(zij),(N_head,N_frames_R,N_frames_L,:))
@@ -222,12 +236,11 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     else
         att = Flux.softmax(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
     end
-
     # Applying the attention weights to the values.
     broadcast_att_oh = reshape(att,(1,N_head,N_frames_R,N_frames_L,:))
     broadcast_vh = reshape(vh, (c,N_head,1,N_frames_L,:))
     oh = reshape(sum(broadcast_att_oh .* broadcast_vh,dims = 4), c,N_head,N_frames_R,:)
-
+    
     broadcast_att_ohp = reshape(att,(1,N_head,1,N_frames_R,N_frames_L,:))
     broadcast_tvhp = reshape(Tvhp,(3,N_head,N_point_values,1,N_frames_L,:))
 
@@ -240,7 +253,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     end
 
     #ohp_r were in the global frame, so we put those back in the recipient local
-    ohp = T_R3_inv(ohp_r, rot_TiR, translate_TiR) 
+    ohp = _T_R3_inv_no_rrule(ohp_r, rot_TiR, translate_TiR) 
     normed_ohp = sqrt.(sum(abs2, ohp,dims = 1) .+ Typ(0.000001f0)) #Adding eps
 
     catty = vcat(
@@ -248,14 +261,114 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
         reshape(ohp, 3*N_head*N_point_values, N_frames_R,:),
         reshape(normed_ohp, N_head*N_point_values, N_frames_R,:)
         ) 
-    
+
     if pairwise
         broadcast_zij = reshape(zij,(c_z,1,N_frames_R,N_frames_L,:))
         broadcast_att_zij = reshape(att,(1,N_head,N_frames_R,N_frames_L,:))
         obh = sum(broadcast_zij .* broadcast_att_zij, dims = 4)
         catty = vcat(catty, reshape(obh, N_head*c_z, N_frames_R,:))
     end
+
+    si = l.ipa_linear(catty) 
+    return si 
+end
+
+function ipa_customgrad(ipa::Union{IPCrossA, IPA}, TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0)
+    @assert !isnothing(zij) && mask != 0 
+    @assert size(zij,2) == size(siR,2)
+    @assert size(zij,3) == size(siL,2) 
+    @assert size(mask,1) == size(siR, 2)
+    @assert size(mask,2) == size(siL, 2)
+    @assert siL == siR && TiL == TiR
+
+    if zij != nothing
+        #This is assuming the dims of zij are c, N_frames_L, N_frames_R, batch
+        @assert size(zij,2) == size(siR,2)
+        @assert size(zij,3) == size(siL,2) 
+    end
+    if mask != 0
+        @assert size(mask,1) == size(siR, 2)
+        @assert size(mask,2) == size(siL, 2)
+    end
     
+    # Get relevant parameters from our ipa struct.
+    l = ipa.layers
+    dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
+    if haskey(ipa.settings, :use_softmax1) #For compat
+        use_softmax1 = ipa.settings.use_softmax1
+    else
+        use_softmax1 = false
+    end
+    
+    rot_TiL, translate_TiL = TiL
+    rot_TiR, translate_TiR = TiR
+    
+    N_frames_L = size(siL,2)
+    N_frames_R = size(siR,2)
+
+    gamma_h = softplus(clamp.(l.gamma_h,Typ(-100), Typ(100))) #Clamping
+
+    w_C = Typ(sqrt(2/(9*N_query_points)))
+    dim_scale = Typ(1/sqrt(c))
+
+    qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
+    kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
+    vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
+    qhp = reshape(l.proj_qhp(siR),(3,N_head,N_query_points,N_frames_R,:))
+    khp = reshape(l.proj_khp(siL),(3,N_head,N_query_points,N_frames_L,:))
+    vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
+    Tvhp = T_R3(vhp, rot_TiL, translate_TiL)
+
+    if pairwise
+        w_L = Typ(sqrt(1/3))
+        bij = reshape(l.pair(zij),(N_head,N_frames_R,N_frames_L,:))
+    else
+        w_L = Typ(sqrt(1/2))
+        bij = Typ(0)
+    end
+
+    # Setting mask to the correct dim for broadcasting. 
+    if mask != 0 
+        mask = unsqueeze(mask, dims = 1) 
+    end
+
+    att_arg = pre_softmax_aijh(qh,kh,TiL,qhp,khp,bij,gamma_h)
+
+    if use_softmax1
+        att = softmax1(att_arg .+ mask, dims = 3)
+    else
+        att = Flux.softmax(att_arg .+ mask, dims = 3)
+    end
+
+
+    # can save one allocation here with a grad
+    oh = permutedims(batched_mul(permutedims(att,(2,3,1,4)), permutedims(vh,(3,1,2,4))),(2,3,1,4));
+    # This part needs a GPU kernel or a particularly clever matmul, without it the grad costs 7 gpu allocations
+    broadcast_att_ohp = reshape(att,(1,N_head,1,N_frames_R,N_frames_L,:))
+    broadcast_tvhp = reshape(Tvhp,(3,N_head,N_point_values,1,N_frames_L,:))
+    
+    if use_softmax1
+        pre_ohp_r = sum(broadcast_att_ohp.*broadcast_tvhp,dims=5)
+        # customgrad for this wouldn't save much 
+        unreshaped_ohp_r = pre_ohp_r .+ (1 .- sum(broadcast_att_ohp, dims = 5)) .* reshape(translate_TiR, 3, 1, 1, N_frames_R, 1, :)
+        ohp_r = reshape(unreshaped_ohp_r,3,N_head*N_point_values,N_frames_R,:)
+    else
+        ohp_r = reshape(sum(broadcast_att_ohp.*broadcast_tvhp,dims=5),3,N_head*N_point_values,N_frames_R,:)
+    end
+    #ohp_r were in the global frame, so we put those back in the recipient local
+    ohp = T_R3_inv(ohp_r, rot_TiR, translate_TiR) 
+    normed_ohp = sqrt.(sumabs2(ohp,dims = 1) .+ Typ(0.000001f0)) #Adding eps
+    catty = vcat(
+        reshape(oh, N_head*c, N_frames_R,:),
+        reshape(ohp, 3*N_head*N_point_values, N_frames_R,:),
+        reshape(normed_ohp, N_head*N_point_values, N_frames_R,:)
+        ) 
+    if pairwise
+        # can save another here with grad
+        obh = batched_mul(permutedims(zij,(1,3,2,4)), permutedims(att,(3,1,2,4)))
+        catty = vcat(catty, reshape(obh, N_head*c_z, N_frames_R,:))
+    end
+
     si = l.ipa_linear(catty) 
     return si 
 end
