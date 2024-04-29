@@ -247,7 +247,7 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     else
         use_softmax1 = false
     end
-    TiL = TiR = Ti 
+    TiL = TiR = (Ti[1], reshape(Ti[2], size(Ti[2],1), 1, size(Ti[2])[2:end]...)) 
     siL = siR = S
     rot_TiL, translate_TiL = TiL
     rot_TiR, translate_TiR = TiR
