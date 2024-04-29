@@ -121,7 +121,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     isnothing(zij) || mask == 0 || siL != siR || TiL != TiR ? customgrad = false : nothing
 
     if customgrad == true
-        return ipa_customgrad(ipa, TiL, siL, TiR, siR, zij = zij, mask = mask)
+        return ipa_customgrad(ipa, TiL, siL, zij, mask)
     end
 
     if zij != nothing
@@ -238,14 +238,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     return si 
 end
 
-function ipa_customgrad(ipa::Union{IPCrossA, IPA}, TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0)
-    @assert !isnothing(zij) && mask != 0 
-    @assert size(zij,2) == size(siR,2)
-    @assert size(zij,3) == size(siL,2) 
-    @assert size(mask,1) == size(siR, 2)
-    @assert size(mask,2) == size(siL, 2)
-    @assert siL == siR && TiL == TiR
-    
+function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,AbstractArray}, S::AbstractArray, zij::AbstractArray, mask::AbstractArray)    
     # Get relevant parameters from our ipa struct.
     l = ipa.layers
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
@@ -254,7 +247,8 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, TiL::Tuple{AbstractArray,Abst
     else
         use_softmax1 = false
     end
-    
+    TiL = TiR = Ti 
+    siL = siR = S
     rot_TiL, translate_TiL = TiL
     rot_TiR, translate_TiR = TiR
     
@@ -312,14 +306,13 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, TiL::Tuple{AbstractArray,Abst
     end
     #ohp_r were in the global frame, so we put those back in the recipient local
     ohp = T_R3_inv(ohp_r, rot_TiR, translate_TiR) 
-    normed_ohp = sqrt.(sumabs2(ohp,dims = 1) .+ Typ(0.000001f0)) #Adding eps
+    normed_ohp = L2norm(ohp, eps = Typ(0.000001f0)) #Adding eps
     catty = vcat(
         reshape(oh, N_head*c, N_frames_R,:),
         reshape(ohp, 3*N_head*N_point_values, N_frames_R,:),
         reshape(normed_ohp, N_head*N_point_values, N_frames_R,:)
         ) 
     if pairwise
-        # can save another here with grad
         obh = batched_mul(permutedims(zij,(1,3,2,4)), permutedims(att,(3,1,2,4)))
         catty = vcat(catty, reshape(obh, N_head*c_z, N_frames_R,:))
     end

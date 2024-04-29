@@ -23,6 +23,19 @@ function ChainRulesCore.rrule(::typeof(sumabs2), x; dims = 1)
     sumabs2(x; dims), sumabs2_pullback
 end
 
+function L2norm(x::AbstractArray{T}; dims = 1, eps = 1f-7) where {T}
+    sqrt.(sumabs2(x; dims) .+ eps )
+end
+
+function ChainRulesCore.rrule(::typeof(L2norm), x::AbstractArray{T}; dims = 1, eps = 1f-7) where {T}
+    normx = L2norm(x; dims)
+    function L2norm_pullback(_Δ)
+        Δ = unthunk(_Δ)
+        return (NoTangent(), Δ .* x ./ normx)
+    end
+    return normx, L2norm_pullback
+end
+
 function pair_diff(A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}
     return unsqueeze(A, dims = dims + 1) .- unsqueeze(B, dims = dims)
 end
