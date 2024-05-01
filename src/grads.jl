@@ -252,7 +252,10 @@ function pre_softmax_aijh(qh::AbstractArray{T},kh::AbstractArray{T},Ti,qhp::Abst
     w_C = T(sqrt(2f0/(9f0*size(qhp,3))))
     dim_scale = T(1f0/sqrt(size(qh,1)))
     w_L = T(1f0/sqrt(3f0))
-    
+
     w_L.*(dim_scale.*qhTkh(qh,kh) .+ bij .- w_C/2 .* gamma_h .* dropdims(diff_sum_glob(Ti,qhp,khp),dims=(1,3)))
 end
 
+function test_version()
+    println("Hello World!")
+end
