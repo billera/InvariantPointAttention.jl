@@ -108,9 +108,12 @@ end
 #Attention props from L (Keys, Values) to R (Queries).
 #Because IPA uses Q'K, our pairwise matrices are R-by-L
 function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0, customgrad = true)
-    isnothing(zij) || mask == 0 || siL != siR || TiL != TiR ? customgrad = false : nothing
+    if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR  
+        @warn "Forcing customgrad to false"
+        customgrad = false 
+    end
 
-    if customgrad == true
+    if customgrad  
         return ipa_customgrad(ipa, TiL, siL, zij, mask)
     end
 
@@ -207,7 +210,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
         ohp_r = reshape(sum(broadcast_att_ohp.*broadcast_tvhp,dims=5),3,N_head*N_point_values,N_frames_R,:)
     end
 
-    #ohp_r were in the global frame, so we put those back in the recipient local
+    #ohp_r were in the global frame, so we put those ba ck in the recipient local
     ohp = _T_R3_inv_no_rrule(ohp_r, rot_TiR, translate_TiR) 
     normed_ohp = sqrt.(sum(abs2, ohp,dims = 1) .+ Typ(0.000001f0)) #Adding eps
 
@@ -237,8 +240,14 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     else
         use_softmax1 = false
     end
-    TiL = TiR = (Ti[1], reshape(Ti[2], size(Ti[2],1), 1, size(Ti[2])[2:end]...)) 
-    siL = siR = S
+
+    TiL = Ti
+    TiR = Ti
+    if size(Ti[2],2) != 1
+        TiL = TiR = (Ti[1], reshape(Ti[2], size(Ti[2],1), 1, size(Ti[2])[2:end]...)) 
+    end
+    siL = S
+    siR = S
     rot_TiL, translate_TiL = TiL
     rot_TiR, translate_TiR = TiR
     
@@ -257,7 +266,6 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     khp = reshape(l.proj_khp(siL),(3,N_head,N_query_points,N_frames_L,:))
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
     Tvhp = T_R3(vhp, rot_TiL, translate_TiL)
-
     if pairwise
         w_L = Typ(sqrt(1/3))
         bij = reshape(l.pair(zij),(N_head,N_frames_R,N_frames_L,:))
@@ -272,13 +280,11 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     end
 
     att_arg = pre_softmax_aijh(qh,kh,TiL,qhp,khp,bij,gamma_h)
-
     if use_softmax1
         att = softmax1(att_arg .+ mask, dims = 3)
     else
         att = Flux.softmax(att_arg .+ mask, dims = 3)
     end
-
 
     # can save one allocation here with a grad
     oh = permutedims(batched_mul(permutedims(att,(2,3,1,4)), permutedims(vh,(3,1,2,4))),(2,3,1,4));

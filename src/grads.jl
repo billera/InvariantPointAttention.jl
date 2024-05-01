@@ -27,11 +27,15 @@ function L2norm(x::AbstractArray{T}; dims = 1, eps = 1f-7) where {T}
     sqrt.(sumabs2(x; dims) .+ eps )
 end
 
+function _L2norm_no_rrule(x::AbstractArray{T}; dims = 1, eps = 1f-7) where {T}
+    sqrt.(sum(abs2, x; dims) .+ eps )
+end
+
 function ChainRulesCore.rrule(::typeof(L2norm), x::AbstractArray{T}; dims = 1, eps = 1f-7) where {T}
-    normx = L2norm(x; dims)
+    normx = L2norm(x; dims, eps)
     function L2norm_pullback(_Δ)
         Δ = unthunk(_Δ)
-        return (NoTangent(), Δ .* x ./ normx)
+        return (NoTangent(), @thunk(Δ .* x ./ normx))
     end
     return normx, L2norm_pullback
 end
@@ -247,9 +251,9 @@ end
 
 
 function pre_softmax_aijh(qh,kh,T,qhp,khp, bij, gamma_h)
-    w_C = Float32(sqrt(2/(9*size(qhp,3))))
-    dim_scale = Float32(1/sqrt(size(qh,1)))
-    w_L = Float32(1f0/sqrt(3f0))
+    w_C = f32(sqrt(2/(9*size(qhp,3))))
+    dim_scale = f32(1/sqrt(size(qh,1)))
+    w_L = f32(1f0/sqrt(3f0))
 
     w_L.*(dim_scale.*qhTkh(qh,kh) .+ bij .- w_C/2 .* gamma_h .* dropdims(diff_sum_glob(T,qhp,khp),dims=(1,3)))
 end

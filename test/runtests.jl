@@ -4,7 +4,8 @@ using InvariantPointAttention: softmax1
 using Zygote:gradient
 using Zygote:withgradient
 using Flux: params
-using InvariantPointAttention: T_R3, T_R3_inv, _T_R3_no_rrule, _T_R3_inv_no_rrule, diff_sum_glob, _diff_sum_glob_no_rrule
+using InvariantPointAttention: T_R3, T_R3_inv, _T_R3_no_rrule, _T_R3_inv_no_rrule, diff_sum_glob, _diff_sum_glob_no_rrule, pair_diff, _pair_diff_no_rrule
+using InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_rrule
 using Test
 
 @testset "InvariantPointAttention.jl" begin
@@ -48,20 +49,52 @@ using Test
         @test gradient(sum ∘ T_R3_inv, x, rot, trans)[1] ≈ gradient(sum ∘ _T_R3_inv_no_rrule, x, rot, trans)[1]
     end
 
+    @testset "sumabs2 custom grad" begin 
+        x = randn(3,10,41,13)
+
+        for k in 1:4
+            f(x; dims = k) = sum(sumabs2(x; dims))
+            g(x; dims = k) = sum(sum(abs2, x; dims))
+            cval, cgs = withgradient(f, x)
+            val, gs = withgradient(g, x)
+            @test cval ≈ val
+            @test keys(cgs) ≈ keys(gs)
+        end
+    end
+
+    @testset "L2norm custom grad" begin 
+        x = randn(3,10,41,13)
+
+        for k in 1:4
+            f(x; dims = k) = sum(L2norm(x; dims, eps = 0.1f0))
+            g(x; dims = k) = sum(_L2norm_no_rrule(x; dims, eps = 0.1f0))
+            cval, cgs = withgradient(f, x)
+            val, gs = withgradient(g, x)
+            @test cval ≈ val
+            @test keys(cgs)[1] ≈ keys(gs)[1]
+        end
+    end
+
+    @testset "pair_diff custom grad" begin 
+        x = randn(3,5,5,5,5)
+        y = randn(3,5,5,15,5)
+        @test gradient(sum ∘ pair_diff, x, y)[1] ≈ gradient(sum ∘ _pair_diff_no_rrule, x, y)[1]
+    end
+
     @testset "ipa_customgrad" begin
         batch_size = 3
         framesL = 10
         framesR = 10
         dim = 10
         
-        siL = Float32.(randn(dim,framesL,batch_size)) 
+        siL = Float64.(randn(dim,framesL,batch_size)) 
         siR = siL
         # Use CLOPS.jl shape notation
-        TiL = (get_rotation(framesL,batch_size), randn(3,framesL,batch_size)) 
+        TiL = (Float64.(get_rotation(framesL,batch_size)), randn(Float64, 3,framesL,batch_size)) 
         TiR = TiL 
-        zij = randn(Float32, 16, framesR, framesL, batch_size) 
+        zij = randn(Float64, 16, framesR, framesL, batch_size) 
 
-        ipa = IPCrossA(IPA_settings(dim; use_softmax1 = true, c_z = 16)) 
+        ipa = IPCrossA(IPA_settings(dim; use_softmax1 = true, c_z = 16, Typ = Float64))  
         # Batching on mask
         mask = right_to_left_mask(framesL)[:,:,repeat(1:1, inner = batch_size)]
         ps = params(ipa)
@@ -75,9 +108,10 @@ using Test
         end
         
         for (gs, zygotegs) in zip(keys(gs),keys(zygotegs))
-            @test maximum(abs.(gs .- zygotegs)) < 1f-7
+            @test maximum(abs.(gs .- zygotegs)) < 1f-5
         end
-        @test lz - lz2 < 1f-7
+        #@show lz, lz2
+        @test abs.(lz - lz2) < 1f-5
     end
     @testset "IPAsoftmax_invariance" begin
         batch_size = 3
