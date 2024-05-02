@@ -262,10 +262,32 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
-    qhp = reshape(l.proj_qhp(siR),(3,N_head,N_query_points,N_frames_R,:))
-    khp = reshape(l.proj_khp(siL),(3,N_head,N_query_points,N_frames_L,:))
+    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
+    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
+
+    # This should be Q'K, following IPA, which isn't like the regular QK'
+    # Dot products between queries and keys.
+                        #FramesR, c, N_head, Batch
+    qhT = permutedims(qh, (3, 1, 2, 4))
+                         #c, FramesL, N_head, Batch
+    kh = permutedims(kh, (1, 3, 2, 4))
+    qhTkh = permutedims(#FramesR, #FramesL, N_head, Batch
+                        batched_mul(qhT,kh)
+                        #N_head, FramesR, FramesL, Batch when we use (3,1,2,4)
+                            ,(3,1,2,4))
+    
+    # Applying our transformations to the queries, keys, and values to put them in the global frame.
+    Tqhp = reshape(T_R3(qhp, rot_TiR,translate_TiR),3,N_head,N_query_points,N_frames_R,:) 
+    Tkhp = reshape(T_R3(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
     Tvhp = T_R3(vhp, rot_TiL, translate_TiL)
+
+    diffs_glob = pair_diff(Tqhp, Tkhp, dims = 4)
+    sum_norms_glob = reshape(sum(abs2, diffs_glob, dims = [1,3]),N_head,N_frames_R,N_frames_L,:) #Sum over points for each head
+    
+
+    att_arg = reshape(dim_scale .* qhTkh .- w_C/2 .* gamma_h .* sum_norms_glob,(N_head,N_frames_R,N_frames_L, :))
+
     if pairwise
         w_L = Typ(sqrt(1/3))
         bij = reshape(l.pair(zij),(N_head,N_frames_R,N_frames_L,:))
@@ -279,11 +301,10 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
         mask = unsqueeze(mask, dims = 1) 
     end
 
-    att_arg = pre_softmax_aijh(qh,kh,TiL,qhp,khp,bij,gamma_h)
     if use_softmax1
-        att = softmax1(att_arg .+ mask, dims = 3)
+        att = softmax1(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
     else
-        att = Flux.softmax(att_arg .+ mask, dims = 3)
+        att = Flux.softmax(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
     end
 
     # can save one allocation here with a grad
