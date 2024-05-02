@@ -283,7 +283,7 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     Tvhp = T_R3(vhp, rot_TiL, translate_TiL)
 
     diffs_glob = pair_diff(Tqhp, Tkhp, dims = 4)
-    sum_norms_glob = reshape(sum(abs2, diffs_glob, dims = [1,3]),N_head,N_frames_R,N_frames_L,:) #Sum over points for each head
+    sum_norms_glob = reshape(sumabs2(diffs_glob, dims = [1,3]),N_head,N_frames_R,N_frames_L,:) #Sum over points for each head
     
 
     att_arg = reshape(dim_scale .* qhTkh .- w_C/2 .* gamma_h .* sum_norms_glob,(N_head,N_frames_R,N_frames_L, :))
