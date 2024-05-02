@@ -257,5 +257,5 @@ function pre_softmax_aijh(qh::AbstractArray{T},kh::AbstractArray{T},Ti,qhp::Abst
 end
 
 function test_version()
-    println("Hello World!")
+    println("Hello World! gradablateaij")
 end
