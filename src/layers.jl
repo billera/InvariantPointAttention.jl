@@ -297,8 +297,8 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
         ohp_r = reshape(sum(broadcast_att_ohp.*broadcast_tvhp,dims=5),3,N_head*N_point_values,N_frames_R,:)
     end
     #ohp_r were in the global frame, so we put those back in the recipient local
-    ohp = T_R3_inv(ohp_r, rot_TiR, translate_TiR) 
-    normed_ohp = L2norm(ohp, eps = Typ(0.000001f0)) #Adding eps
+    ohp = _T_R3_inv_no_rrule(ohp_r, rot_TiR, translate_TiR) 
+    normed_ohp = sqrt.(sumabs2(ohp, dims = 1) .+ Typ(0.000001f0)) #Adding eps
     catty = vcat(
         reshape(oh, N_head*c, N_frames_R,:),
         reshape(ohp, 3*N_head*N_point_values, N_frames_R,:),
