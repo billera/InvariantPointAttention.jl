@@ -1,3 +1,5 @@
+const qk_scaling = 0.1f0
+
 """
 Projects the frame embedding => 6, and uses this to transform the input frames.
 """
@@ -107,7 +109,8 @@ end
 
 #Attention props from L (Keys, Values) to R (Queries).
 #Because IPA uses Q'K, our pairwise matrices are R-by-L
-function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0, customgrad = true)
+function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0, customgrad = true, qk_scaling = 0.1f0)
+    
     if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR  
         @warn "Forcing customgrad to false"
         customgrad = false 
@@ -147,11 +150,13 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     w_C = Typ(sqrt(2/(9*N_query_points)))
     dim_scale = Typ(1/sqrt(c))
 
+    qk_scal = Typ(qk_scaling)
+
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
-    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
-    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
+    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:)) .* qk_scal
+    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:)) .* qk_scal
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
     # This should be Q'K, following IPA, which isn't like the regular QK'
@@ -259,11 +264,13 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     w_C = Typ(sqrt(2/(9*N_query_points)))
     dim_scale = Typ(1/sqrt(c))
 
+    qk_scal = Typ(qk_scaling)
+
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
-    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
-    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
+    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:)) .* qk_scal
+    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:)) .* qk_scal
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
     # This should be Q'K, following IPA, which isn't like the regular QK'
@@ -452,8 +459,10 @@ function expand(
     Δkh = reshape(calldense(layer.proj_kh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
     Δvh = reshape(calldense(layer.proj_vh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
 
-    Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
-    Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
+    qk_scal = Typ(qk_scaling)
+
+    Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B)) .* qk_scal
+    Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B)) .* qk_scal
     Δvhp = reshape(calldense(layer.proj_vhp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
 
     kh = cat(cache.kh, Δkh, dims = 3)
