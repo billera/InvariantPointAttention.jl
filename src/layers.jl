@@ -76,7 +76,7 @@ function IPCrossA(settings::NamedTuple)
             ipa_linear = ipa_linear,
             pair = pair,
             gamma_h = min.(ones(Typ, N_head) .* Typ(0.541),1f2),
-            scale_h = repeat(Typ.(0.1 .+ ([1:N_head;] ./ N_head).^2), inner = N_query_points)
+            scale_h = repeat(Typ.(0.1 .+ ([1:N_head;] ./ N_head).^2), outer = N_query_points)
             )
     
     return IPCrossA(settings, layers)
