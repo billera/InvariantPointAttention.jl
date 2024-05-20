@@ -45,7 +45,7 @@ end
 Generates random rotation matrices of given size.  
 """
 get_rotation(T::Type{<:Real}, dims...) = reshape(rotmatrix_from_quat(bcds2quats(randn(T, 3, prod(dims)))), 3, 3, dims...)
-get_rotation(dims...) = get_rotation(Float32, dims...)
+get_rotation(dims...; T::Type{<:Real}=Float32) = get_rotation(T, dims...)
 
 """
     get_translation([T=Float32,] dims...)
@@ -53,11 +53,7 @@ get_rotation(dims...) = get_rotation(Float32, dims...)
 Generates random translations of given size.
 """
 get_translation(T::Type{<:Real}, dims...) = randn(T, 3, 1, dims...)
-get_translation(dims...) = get_translation(Float32, dims...) 
-
-# compat
-get_rotation(dims...; T::Type{<:Real}) = get_rotation(T, dims...)
-get_translation(dims...; T::Type{<:Real}) = get_translation(T, dims...)
+get_translation(dims...; T::Type{<:Real}=Float32) = get_translation(T, dims...) 
 
 """
 Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
