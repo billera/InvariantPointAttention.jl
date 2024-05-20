@@ -30,6 +30,7 @@ function rotmatrix_from_quat(q)
     return reshape(vcat(r1, r4, r7, r2, r5, r8, r3, r6, r9), 3, 3, :)
 end
 
+# "bcd" = b, c, d coefficients of quaternion?
 """
 Creates a quaternion (as a vector) from a triplet of values (pirated from Diffusions.jl)
 """
@@ -39,19 +40,26 @@ function bcds2quats(bcd::AbstractArray{<: Real, 2})
 end
 
 """
+    get_rotation([T=Float32,] dims...)
+
 Generates random rotation matrices of given size.  
 """
-get_rotation(N, M; T = Float32) = reshape(rotmatrix_from_quat(bcds2quats(randn(T,3,N*M))),3,3,N,M)
-get_rotation(N; T = Float32) = reshape(rotmatrix_from_quat(bcds2quats(randn(T, 3,N))),3,3,N)
+get_rotation(T::Type{<:Real}, dims...) = reshape(rotmatrix_from_quat(bcds2quats(randn(T, 3, prod(dims)))), 3, 3, dims...)
+get_rotation(dims...) = get_rotation(Float32, dims...)
 
 """
+    get_translation([T=Float32,] dims...)
+
 Generates random translations of given size.
 """
-get_translation(N,M; T = Float32) = randn(T,3,1,N,M)
-get_translation(N; T = Float32) = randn(T, 3,1,N) 
+get_translation(T::Type{<:Real}, dims...) = randn(T, 3, 1, dims...)
+get_translation(dims...) = get_translation(Float32, dims...) 
 
+# compat
+get_rotation(dims...; T=Float32) = get_rotation(T, dims...)
+get_translation(dims...; T=Float32) = get_translation(T, dims...)
 
-""" 
+"""
 Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
 to N batches of m points in R3, i.e., mat ∈ R^(3 x m x N) ↦ T(mat) ∈ R^(3 x m x N).
 Note here that rotations here are represented in matrix form. 

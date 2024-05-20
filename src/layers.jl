@@ -32,7 +32,8 @@ IPA_settings(
     N_point_values = 8,
     c_z = 0,
     Typ = Float32,
-    use_softmax1 = false
+    use_softmax1 = false,
+    head_scaling = nothing, #(i, n) -> 0.1 + (i / n)^2,
 ) = (
     dims = dims,
     c = c,
@@ -42,7 +43,8 @@ IPA_settings(
     c_z = c_z,
     Typ = Typ,
     pairwise = c_z > 0,
-    use_softmax1 = use_softmax1
+    use_softmax1 = use_softmax1,
+    head_scaling = head_scaling,
 )
 
 
@@ -58,8 +60,8 @@ Flux.@layer IPCrossA # provides parameter collection, gpu movement and more
 
 function IPCrossA(settings::NamedTuple)
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = settings 
-    # Needs a slighyly unusual initialization - hat-tip: Kenta
-    init = Flux.kaiming_uniform(gain = 1.0)
+    # Needs a slightly unusual initialization - hat-tip: Kenta
+    init = Flux.kaiming_uniform(gain = 1.0f0)
     if pairwise
         pair = Dense(c_z => N_head, bias = false; init)
         ipa_linear = Dense(N_head*c_z + N_head*c + 4*N_head*N_point_values => dims)
@@ -68,17 +70,17 @@ function IPCrossA(settings::NamedTuple)
         ipa_linear = Dense(N_head*c + 4*N_head*N_point_values => dims)
     end
     layers = (
-            proj_qh = Dense(dims => c*N_head, bias = false; init),
-            proj_kh = Dense(dims => c*N_head, bias = false; init),
-            proj_vh = Dense(dims => c*N_head, bias = false; init),
-            proj_qhp = Dense(dims => 3*N_head*N_query_points, bias = false; init),
-            proj_khp = Dense(dims => 3*N_head*N_query_points, bias = false; init),
-            proj_vhp = Dense(dims => 3*N_head*N_point_values, bias = false; init),
-            ipa_linear = ipa_linear,
-            pair = pair,
-            gamma_h = min.(ones(Typ, N_head) .* Typ(0.541),1f2),
-            scale_h = repeat(Typ.(0.1 .+ ([1:N_head;] ./ N_head).^2), outer = N_query_points)
-            )
+        proj_qh = Dense(dims => c*N_head, bias = false; init),
+        proj_kh = Dense(dims => c*N_head, bias = false; init),
+        proj_vh = Dense(dims => c*N_head, bias = false; init),
+        proj_qhp = Dense(dims => 3*N_head*N_query_points, bias = false; init),
+        proj_khp = Dense(dims => 3*N_head*N_query_points, bias = false; init),
+        proj_vhp = Dense(dims => 3*N_head*N_point_values, bias = false; init),
+        ipa_linear = ipa_linear,
+        pair = pair,
+        gamma_h = min.(ones(Typ, N_head) .* Typ(0.541), 1f2),
+        scale_h = haskey(settings, :head_scaling) && !isnothing(settings.head_scaling) ? repeat(Typ.(settings.head_scaling.(1:N_head, N_head)), outer=N_query_points) : nothing,
+    )
     
     return IPCrossA(settings, layers)
 end
@@ -151,18 +153,20 @@ function (ipa::Union{IPCrossA, IPA})(
     gamma_h = softplus(clamp.(l.gamma_h,Typ(-100), Typ(100))) #Clamping
 
     w_C = Typ(sqrt(2/(9*N_query_points)))
-    dim_scale = Typ(1/sqrt(c))
-
-    
-
-    scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
+    dim_scale = Typ(1/sqrt(c))    
 
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
-    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:)) .* scale_h
-    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:)) .* scale_h
+    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
+    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
+
+    if haskey(l, :scale_h) && !isnothing(l.scale_h)
+        scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
+        qhp .*= scale_h
+        khp .*= scale_h
+    end
 
     # This should be Q'K, following IPA, which isn't like the regular QK'
     # Dot products between queries and keys.
@@ -269,14 +273,18 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     w_C = Typ(sqrt(2/(9*N_query_points)))
     dim_scale = Typ(1/sqrt(c))
 
-    scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
-
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
-    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:)) .* scale_h
-    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:)) .* scale_h
+    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
+    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
+
+    if haskey(l, :scale_h) && !isnothing(l.scale_h)
+        scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
+        qhp .*= scale_h
+        khp .*= scale_h
+    end
 
     # This should be Q'K, following IPA, which isn't like the regular QK'
     # Dot products between queries and keys.
@@ -464,11 +472,15 @@ function expand(
     Δkh = reshape(calldense(layer.proj_kh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
     Δvh = reshape(calldense(layer.proj_vh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
 
-    scale_h = reshape(layer.scale_h, (1,N_head*N_query_points,1,1))
-
-    Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B)) .* scale_h
-    Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B)) .* scale_h
+    Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
+    Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
     Δvhp = reshape(calldense(layer.proj_vhp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
+
+    if haskey(layer, :scale_h) && !isnothing(layer.scale_h)
+        scale_h = reshape(layer.scale_h, (1,N_head*N_query_points,1,1))
+        Δqhp .*= scale_h
+        Δkhp .*= scale_h
+    end
 
     kh = cat(cache.kh, Δkh, dims = 3)
     vh = cat(cache.vh, Δvh, dims = 3)

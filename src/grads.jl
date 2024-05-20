@@ -1,5 +1,5 @@
 # to do
-# use chain rule config to avoid code repitition 
+# use chain rule config to avoid code repetition 
 # unit test coverage of all custom grads, only have a couple and the overall IPA grads in runtests
 # customgrad for ohp_r, make computation more efficient
 # write customgrad for permutedims(batched_mul(permutedims(A,(...)),permutedims(B,(...))),(...))

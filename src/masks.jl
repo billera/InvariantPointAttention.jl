@@ -11,8 +11,6 @@ function right_to_left_mask(T::Type{<:AbstractFloat}, N::Integer)
     return mask
 end
 
-@inline right_to_left_mask(args...) = right_to_left_mask(Float32, args...)
-
 """
     right_to_left_mask([T=Float32,] L::Integer, R::Integer; step::Integer = 10)
 """
@@ -28,7 +26,7 @@ function right_to_left_mask(T::Type{<:AbstractFloat}, L::Integer, R::Integer; st
     return mask
 end
 
-@inline right_to_left_mask(args...) = right_to_left_mask(Float32, args...)
+right_to_left_mask(args...) = right_to_left_mask(Float32, args...)
 
 """
     left_to_right_mask([T=Float32,] L::Integer, R::Integer; step::Integer = 10)
@@ -45,7 +43,7 @@ function left_to_right_mask(T::Type{<:AbstractFloat}, L::Integer, R::Integer; st
     return mask
 end
 
-@inline left_to_right_mask(args...) = left_to_right_mask(Float32, args...)
+left_to_right_mask(args...) = left_to_right_mask(Float32, args...)
 
 function virtual_residues(
     S::AbstractArray, T::Tuple{AbstractArray, AbstractArray};
