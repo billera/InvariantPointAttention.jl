@@ -7,11 +7,11 @@ function rotmatrix_from_quat(q)
     sy = 2q[1, :] .* q[3, :]
     sz = 2q[1, :] .* q[4, :]
 
-    xx = 2q[2, :].^2
+    xx = 2q[2, :] .^ 2
     xy = 2q[2, :] .* q[3, :]
     xz = 2q[2, :] .* q[4, :]
 
-    yy = 2q[3, :].^2
+    yy = 2q[3, :] .^ 2
     yz = 2q[3, :] .* q[4, :]
     zz = 2q[4, :] .^ 2  
     
@@ -19,7 +19,7 @@ function rotmatrix_from_quat(q)
     r2 = reshape(xy .- sz, 1, :)
     r3 = reshape(xz .+ sy, 1, :)
 
-    r4 = reshape( xy .+ sz, 1, :)
+    r4 = reshape(xy .+ sz, 1, :)
     r5 = reshape(1 .- (xx .+ zz), 1, :)
     r6 = reshape( yz .- sx, 1, :)
 
@@ -52,32 +52,29 @@ get_translation(N; T = Float32) = randn(T, 3,1,N)
 
 
 """ 
-Applies the SE3 transformations T = (rot,trans) ∈ SE(E3)^N
+Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
 to N batches of m points in R3, i.e., mat ∈ R^(3 x m x N) ↦ T(mat) ∈ R^(3 x m x N).
 Note here that rotations here are represented in matrix form. 
 """
-function T_R3(mat, rot,trans)
-    size_mat = size(mat)
-    rotc = reshape(rot, 3,3,:)  
-    trans = reshape(trans, 3,1,:)
-    matc = reshape(mat,3,size(mat,2),:) 
-    rotated_mat = batched_mul(rotc,matc) .+ trans
-    return reshape(rotated_mat,size_mat)
-end 
-
+function T_R3(mat, rot, trans)
+    rotc = reshape(rot, 3, 3, :)  
+    trans = reshape(trans, 3, 1, :)
+    matc = reshape(mat, 3, size(mat, 2), :) 
+    rotated_mat = batched_mul(rotc, matc) .+ trans
+    return reshape(rotated_mat, size(mat))
+end
 
 """ 
-Applys the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N batches of m points in R3,
+Applies the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N batches of m points in R3,
 such that T^-1(T*x) = T^-1(Rx+t) =  R^T(Rx+t-t) = x.
 """
-function T_R3_inv(mat,rot,trans)
-    size_mat = size(mat)
-    rotc = batched_transpose(reshape(rot, 3,3,:))
-    matc = reshape(mat,3,size(mat,2),:)
+function T_R3_inv(mat, rot, trans)
+    rotc = batched_transpose(reshape(rot, 3, 3, :))
+    matc = reshape(mat, 3, size(mat, 2), :)
     trans = reshape(trans, 3,1,:)
-    rotated_mat = batched_mul(rotc,matc .- trans)
+    rotated_mat = batched_mul(rotc, matc .- trans)
 
-    return reshape(rotated_mat,size_mat)
+    return reshape(rotated_mat, size(mat))
 end
 
 """
