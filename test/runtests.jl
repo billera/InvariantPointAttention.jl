@@ -1,12 +1,11 @@
 using InvariantPointAttention
-using InvariantPointAttention: get_rotation, get_translation
-using InvariantPointAttention: softmax1
-using Zygote:gradient
-using Zygote:withgradient
-using Flux: params
-using InvariantPointAttention: T_R3, T_R3_inv, _T_R3_no_rrule, _T_R3_inv_no_rrule, diff_sum_glob, _diff_sum_glob_no_rrule, pair_diff, _pair_diff_no_rrule
-using InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_rrule
 using Test
+
+import InvariantPointAttention: get_rotation, get_translation, softmax1
+import Zygote: gradient, withgradient
+import Flux: params
+import InvariantPointAttention: T_R3, T_R3_inv, _T_R3_no_rrule, _T_R3_inv_no_rrule, diff_sum_glob, _diff_sum_glob_no_rrule, pair_diff, _pair_diff_no_rrule
+import InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_rrule
 
 @testset "InvariantPointAttention.jl" begin
     # Write your tests here.

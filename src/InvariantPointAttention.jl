@@ -1,11 +1,10 @@
 module InvariantPointAttention
+
 using LinearAlgebra
 using StatsBase
 using Flux
 using ChainRules
 using ChainRulesCore
-
-using Flux:unsqueeze
 
 include("rotational_utils.jl")
 include("grads.jl")

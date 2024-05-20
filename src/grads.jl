@@ -41,11 +41,11 @@ function ChainRulesCore.rrule(::typeof(L2norm), x::AbstractArray{T}; dims = 1, e
 end
 
 function pair_diff(A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}
-    return unsqueeze(A, dims = dims + 1) .- unsqueeze(B, dims = dims)
+    return Flux.unsqueeze(A, dims = dims + 1) .- Flux.unsqueeze(B, dims = dims)
 end
 
 function _pair_diff_no_rrule(A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}
-    return unsqueeze(A, dims = dims + 1) .- unsqueeze(B, dims = dims)
+    return Flux.unsqueeze(A, dims = dims + 1) .- Flux.unsqueeze(B, dims = dims)
 end
 
 function ChainRulesCore.rrule(::typeof(pair_diff), A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}

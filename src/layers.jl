@@ -1,17 +1,19 @@
-
 """
 Projects the frame embedding => 6, and uses this to transform the input frames.
 """
 struct BackboneUpdate
     layers::NamedTuple
 end
-Flux.@functor BackboneUpdate
+
+Flux.@layer BackboneUpdate
+
 function BackboneUpdate(s_dim::Int)
     layers = (
         linear = Dense(s_dim => 6), 
     )
     return BackboneUpdate(layers)
 end
+
 function (backboneupdate::BackboneUpdate)(Ti, si)
     bu = backboneupdate.layers.linear(si)
     arr = reshape(bu,3,2,size(si,2),:) 
@@ -52,8 +54,7 @@ struct IPCrossA
     layers::NamedTuple
 end
 
-
-Flux.@functor IPCrossA # provides parameter collection, gpu movement and more
+Flux.@layer IPCrossA # provides parameter collection, gpu movement and more
 
 function IPCrossA(settings::NamedTuple)
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = settings 
@@ -93,7 +94,7 @@ struct IPA
     layers::NamedTuple
 end
 
-Flux.@functor IPA
+Flux.@layer IPA
 
 function IPA(settings::NamedTuple)
     crossL = IPCrossA(settings)
@@ -109,7 +110,9 @@ end
 
 #Attention props from L (Keys, Values) to R (Queries).
 #Because IPA uses Q'K, our pairwise matrices are R-by-L
-function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0, customgrad = true)
+function (ipa::Union{IPCrossA, IPA})(
+    TiL::Tuple{AbstractArray, AbstractArray}, siL::AbstractArray,
+    TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0, customgrad = true)
     
     if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR  
         @warn "Forcing customgrad to false"
@@ -120,7 +123,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
         return ipa_customgrad(ipa, TiL, siL, zij, mask)
     end
 
-    if zij != nothing
+    if !isnothing(zij)
         #This is assuming the dims of zij are c, N_frames_L, N_frames_R, batch
         @assert size(zij,2) == size(siR,2)
         @assert size(zij,3) == size(siL,2) 
@@ -177,7 +180,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     Tkhp = reshape(_T_R3_no_rrule(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
     Tvhp = _T_R3_no_rrule(vhp, rot_TiL, translate_TiL)
 
-    diffs_glob = unsqueeze(Tqhp, dims = 5) .- unsqueeze(Tkhp, dims = 4)
+    diffs_glob = Flux.unsqueeze(Tqhp, dims = 5) .- Flux.unsqueeze(Tkhp, dims = 4)
     sum_norms_glob = reshape(sum(abs2, diffs_glob, dims = [1,3]),N_head,N_frames_R,N_frames_L,:) #Sum over points for each head
     
 
@@ -193,7 +196,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
 
     # Setting mask to the correct dim for broadcasting. 
     if mask != 0 
-        mask = unsqueeze(mask, dims = 1) 
+        mask = Flux.unsqueeze(mask, dims = 1) 
     end
 
     if use_softmax1
@@ -307,7 +310,7 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
 
     # Setting mask to the correct dim for broadcasting. 
     if mask != 0 
-        mask = unsqueeze(mask, dims = 1) 
+        mask = Flux.unsqueeze(mask, dims = 1) 
     end
 
     if use_softmax1
@@ -354,7 +357,7 @@ struct IPCrossAStructureModuleLayer
     settings::NamedTuple
     layers::NamedTuple
 end
-Flux.@functor IPCrossAStructureModuleLayer
+Flux.@layer IPCrossAStructureModuleLayer
 function IPCrossAStructureModuleLayer(settings::NamedTuple; dropout_p = 0.1, af = Flux.relu)
     dims = settings.dims
     layers = (
@@ -376,7 +379,7 @@ struct IPAStructureModuleLayer
     settings::NamedTuple
     layers::NamedTuple
 end
-Flux.@functor IPAStructureModuleLayer
+Flux.@layer IPAStructureModuleLayer
 
 function IPAStructureModuleLayer(settings::NamedTuple)
     crossL = IPCrossAStructureModuleLayer(settings)
@@ -418,7 +421,7 @@ struct IPACache
     khp  # 3 × {head × query points} × residues (L) × batch
     vhp  # 3 × {head × point values} × residues (L) × batch
 end
-Flux.@functor IPACache
+Flux.@layer IPACache
 
 """
     IPACache(settings, batchsize)
@@ -491,7 +494,7 @@ function expand(
         (3, N_head, N_point_values, L + ΔL, B)
     )
 
-    diffs = unsqueeze(ΔTqhp, dims = 5) .- unsqueeze(Tkhp, dims = 4)
+    diffs = Flux.unsqueeze(ΔTqhp, dims = 5) .- Flux.unsqueeze(Tkhp, dims = 4)
     sum_norms = sumdrop(abs2, diffs, dims = (1, 3))
 
     w_C = sqrt(2f0 / 9N_query_points)
@@ -499,7 +502,7 @@ function expand(
     Δatt_logits = reshape(dim_scale .* ΔqhTkh .- w_C/2 .* gamma_h .* sum_norms, (N_head, ΔR, L + ΔL, B))
 
     if mask != 0
-        mask = unsqueeze((mask[R+1:R+ΔR,1:L+ΔL]), dims = 1)
+        mask = Flux.unsqueeze((mask[R+1:R+ΔR,1:L+ΔL]), dims = 1)
     end
 
     if pairwise
