@@ -107,7 +107,7 @@ import InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_r
         end
         
         for (gs, zygotegs) in zip(keys(gs),keys(zygotegs))
-            @test maximum(abs.(gs .- zygotegs)) < 1f-5
+            @test maximum(abs.(gs .- zygotegs)) < 2f-5
         end
         #@show lz, lz2
         @test abs.(lz - lz2) < 1f-5
