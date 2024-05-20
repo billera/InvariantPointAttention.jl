@@ -116,7 +116,7 @@ function (ipa::Union{IPCrossA, IPA})(
     TiL::Tuple{AbstractArray, AbstractArray}, siL::AbstractArray,
     TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0, customgrad = true)
     
-    if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR  
+    if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR
         @warn "Forcing customgrad to false"
         customgrad = false 
     end
@@ -127,12 +127,12 @@ function (ipa::Union{IPCrossA, IPA})(
 
     if !isnothing(zij)
         #This is assuming the dims of zij are c, N_frames_L, N_frames_R, batch
-        @assert size(zij,2) == size(siR,2)
-        @assert size(zij,3) == size(siL,2) 
+        size(zij,2) == size(siR,2) || throw(DimensionMismatch("zij and siR must have the same number of frames"))
+        size(zij,3) == size(siL,2) || throw(DimensionMismatch("zij and siL must have the same number of frames")) 
     end
     if mask != 0
-        @assert size(mask,1) == size(siR, 2)
-        @assert size(mask,2) == size(siL, 2)
+        size(mask,1) == size(siR, 2) || throw(DimensionMismatch("mask and siR must have the same number of frames"))
+        size(mask,2) == size(siL, 2) || throw(DimensionMismatch("mask and siL must have the same number of frames"))
     end
     
     # Get relevant parameters from our ipa struct.
