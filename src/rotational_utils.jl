@@ -56,8 +56,8 @@ get_translation(T::Type{<:Real}, dims...) = randn(T, 3, 1, dims...)
 get_translation(dims...) = get_translation(Float32, dims...) 
 
 # compat
-get_rotation(dims...; T=Float32) = get_rotation(T, dims...)
-get_translation(dims...; T=Float32) = get_translation(T, dims...)
+get_rotation(dims...; T::Type{<:Real}) = get_rotation(T, dims...)
+get_translation(dims...; T::Type{<:Real}) = get_translation(T, dims...)
 
 """
 Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
