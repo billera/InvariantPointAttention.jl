@@ -79,9 +79,11 @@ function IPCrossA(settings::NamedTuple)
         ipa_linear = ipa_linear,
         pair = pair,
         gamma_h = min.(ones(Typ, N_head) .* Typ(0.541), 1f2),
-        scale_h = haskey(settings, :head_scaling) && !isnothing(settings.head_scaling) ? repeat(Typ.(settings.head_scaling.(1:N_head, N_head)), outer=N_query_points) : nothing,
     )
-    
+    if haskey(settings, :head_scaling)
+        layers = (layers...,
+            scale_h = !isnothing(settings.head_scaling) ? repeat(Typ.(settings.head_scaling.(1:N_head, N_head)), outer=N_query_points) : nothing)
+    end
     return IPCrossA(settings, layers)
 end
 
@@ -162,7 +164,7 @@ function (ipa::Union{IPCrossA, IPA})(
     khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
-    if haskey(l, :scale_h) && !isnothing(l.scale_h)
+    if haskey(ipa, :scale_h) && !isnothing(l.scale_h)
         scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
         qhp .*= scale_h
         khp .*= scale_h
