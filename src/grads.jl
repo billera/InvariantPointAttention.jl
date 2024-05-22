@@ -1,5 +1,5 @@
 # to do
-# use chain rule config to avoid code repitition 
+# use chain rule config to avoid code repetition 
 # unit test coverage of all custom grads, only have a couple and the overall IPA grads in runtests
 # customgrad for ohp_r, make computation more efficient
 # write customgrad for permutedims(batched_mul(permutedims(A,(...)),permutedims(B,(...))),(...))
@@ -41,11 +41,11 @@ function ChainRulesCore.rrule(::typeof(L2norm), x::AbstractArray{T}; dims = 1, e
 end
 
 function pair_diff(A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}
-    return unsqueeze(A, dims = dims + 1) .- unsqueeze(B, dims = dims)
+    return Flux.unsqueeze(A, dims = dims + 1) .- Flux.unsqueeze(B, dims = dims)
 end
 
 function _pair_diff_no_rrule(A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}
-    return unsqueeze(A, dims = dims + 1) .- unsqueeze(B, dims = dims)
+    return Flux.unsqueeze(A, dims = dims + 1) .- Flux.unsqueeze(B, dims = dims)
 end
 
 function ChainRulesCore.rrule(::typeof(pair_diff), A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}
@@ -257,5 +257,5 @@ function pre_softmax_aijh(qh::AbstractArray{T},kh::AbstractArray{T},Ti,qhp::Abst
 end
 
 function test_version()
-    println("Hello World!")
+    println("Hello World! gradablateaij")
 end

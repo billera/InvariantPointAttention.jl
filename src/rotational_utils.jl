@@ -1,83 +1,83 @@
+# from AF2 supplementary: Algorithm 23 Backbone update
 """
-Returns the rotation matrix form of N flat quaternions. 
+Takes a 3xN matrix of imaginary quaternion components and returns a 4xN matrix of unit quaternions.
 """
-function rotmatrix_from_quat(q)
- 
+function bcds2quats(bcd::AbstractMatrix{T}) where T <: Real
+    quats = vcat(ones(T, 1, size(bcd, 2)), bcd)
+    norms = sqrt.(one(T) .+ sum(abs2, bcd, dims=1))
+    return quats ./ norms
+end
+
+"""
+Takes a 4xN matrix of unit quaternions and returns a 3x3xN array of rotation matrices.
+"""
+function rotmatrix_from_quat(q::AbstractMatrix{<:Real})
     sx = 2q[1, :] .* q[2, :]
     sy = 2q[1, :] .* q[3, :]
     sz = 2q[1, :] .* q[4, :]
 
-    xx = 2q[2, :].^2
+    xx = 2q[2, :] .^ 2
     xy = 2q[2, :] .* q[3, :]
     xz = 2q[2, :] .* q[4, :]
 
-    yy = 2q[3, :].^2
+    yy = 2q[3, :] .^ 2
     yz = 2q[3, :] .* q[4, :]
     zz = 2q[4, :] .^ 2  
-    
-    r1 = reshape(1 .- (yy .+ zz), 1, :)
-    r2 = reshape(xy .- sz, 1, :)
-    r3 = reshape(xz .+ sy, 1, :)
 
-    r4 = reshape( xy .+ sz, 1, :)
-    r5 = reshape(1 .- (xx .+ zz), 1, :)
-    r6 = reshape( yz .- sx, 1, :)
+    r1 = 1 .- (yy .+ zz)
+    r2 = xy .- sz
+    r3 = xz .+ sy
 
-    r7 = reshape(xz .- sy, 1, :)
-    r8 = reshape(yz .+ sx, 1, :)
-    r9 = reshape(1 .- (xx .+ yy), 1, :)
+    r4 = xy .+ sz
+    r5 = 1 .- (xx .+ zz)
+    r6 = yz .- sx
 
-    return reshape(vcat(r1, r4, r7, r2, r5, r8, r3, r6, r9), 3, 3, :)
+    r7 = xz .- sy
+    r8 = yz .+ sx
+    r9 = 1 .- (xx .+ yy)
+
+    return reshape(vcat(r1', r4', r7', r2', r5', r8', r3', r6', r9'), 3, 3, :)
 end
 
 """
-Creates a quaternion (as a vector) from a triplet of values (pirated from Diffusions.jl)
-"""
-function bcds2quats(bcd::AbstractArray{<: Real, 2})
-    denom = sqrt.(1 .+ bcd[1,:].^2 .+ bcd[2,:].^2 .+ bcd[3,:].^2)
-    return vcat((1 ./ denom)', bcd ./ denom')
-end
+    get_rotation([T=Float32,] dims...)
 
-"""
 Generates random rotation matrices of given size.  
 """
-get_rotation(N, M; T = Float32) = reshape(rotmatrix_from_quat(bcds2quats(randn(T,3,N*M))),3,3,N,M)
-get_rotation(N; T = Float32) = reshape(rotmatrix_from_quat(bcds2quats(randn(T, 3,N))),3,3,N)
+get_rotation(T::Type{<:Real}, dims...) = reshape(rotmatrix_from_quat(bcds2quats(randn(T, 3, prod(dims)))), 3, 3, dims...)
+get_rotation(dims...; T::Type{<:Real}=Float32) = get_rotation(T, dims...)
 
 """
+    get_translation([T=Float32,] dims...)
+
 Generates random translations of given size.
 """
-get_translation(N,M; T = Float32) = randn(T,3,1,N,M)
-get_translation(N; T = Float32) = randn(T, 3,1,N) 
+get_translation(T::Type{<:Real}, dims...) = randn(T, 3, 1, dims...)
+get_translation(dims...; T::Type{<:Real}=Float32) = get_translation(T, dims...) 
 
-
-""" 
-Applies the SE3 transformations T = (rot,trans) ∈ SE(E3)^N
+"""
+Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
 to N batches of m points in R3, i.e., mat ∈ R^(3 x m x N) ↦ T(mat) ∈ R^(3 x m x N).
 Note here that rotations here are represented in matrix form. 
 """
-function T_R3(mat, rot,trans)
-    size_mat = size(mat)
-    rotc = reshape(rot, 3,3,:)  
-    trans = reshape(trans, 3,1,:)
-    matc = reshape(mat,3,size(mat,2),:) 
-    rotated_mat = batched_mul(rotc,matc) .+ trans
-    return reshape(rotated_mat,size_mat)
-end 
-
+function T_R3(mat, rot, trans)
+    rotc = reshape(rot, 3, 3, :)  
+    trans = reshape(trans, 3, 1, :)
+    matc = reshape(mat, 3, size(mat, 2), :) 
+    rotated_mat = batched_mul(rotc, matc) .+ trans
+    return reshape(rotated_mat, size(mat))
+end
 
 """ 
-Applys the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N batches of m points in R3,
+Applies the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N batches of m points in R3,
 such that T^-1(T*x) = T^-1(Rx+t) =  R^T(Rx+t-t) = x.
 """
-function T_R3_inv(mat,rot,trans)
-    size_mat = size(mat)
-    rotc = batched_transpose(reshape(rot, 3,3,:))
-    matc = reshape(mat,3,size(mat,2),:)
+function T_R3_inv(mat, rot, trans)
+    rotc = batched_transpose(reshape(rot, 3, 3, :))
+    matc = reshape(mat, 3, size(mat, 2), :)
     trans = reshape(trans, 3,1,:)
-    rotated_mat = batched_mul(rotc,matc .- trans)
-
-    return reshape(rotated_mat,size_mat)
+    rotated_mat = batched_mul(rotc, matc .- trans)
+    return reshape(rotated_mat, size(mat))
 end
 
 """

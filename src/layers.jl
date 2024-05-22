@@ -4,13 +4,16 @@ Projects the frame embedding => 6, and uses this to transform the input frames.
 struct BackboneUpdate
     layers::NamedTuple
 end
-Flux.@functor BackboneUpdate
+
+Flux.@layer BackboneUpdate
+
 function BackboneUpdate(s_dim::Int)
     layers = (
         linear = Dense(s_dim => 6), 
     )
     return BackboneUpdate(layers)
 end
+
 function (backboneupdate::BackboneUpdate)(Ti, si)
     bu = backboneupdate.layers.linear(si)
     arr = reshape(bu,3,2,size(si,2),:) 
@@ -29,17 +32,19 @@ IPA_settings(
     N_point_values = 8,
     c_z = 0,
     Typ = Float32,
-    use_softmax1 = false
-) = (
-    dims = dims,
-    c = c,
-    N_head = N_head,
-    N_query_points = N_query_points,
-    N_point_values = N_point_values,
-    c_z = c_z,
-    Typ = Typ,
+    use_softmax1 = false,
+    scaling_qk = :default, # :none, :default, or a vector of length N_head
+) = (;
+    dims,
+    c,
+    N_head,
+    N_query_points,
+    N_point_values,
+    c_z,
+    Typ,
     pairwise = c_z > 0,
-    use_softmax1 = use_softmax1
+    use_softmax1,
+    scaling_qk,
 )
 
 
@@ -51,13 +56,12 @@ struct IPCrossA
     layers::NamedTuple
 end
 
-
-Flux.@functor IPCrossA # provides parameter collection, gpu movement and more
+Flux.@layer IPCrossA # provides parameter collection, gpu movement and more
 
 function IPCrossA(settings::NamedTuple)
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = settings 
-    # Needs a slighyly unusual initialization - hat-tip: Kenta
-    init = Flux.kaiming_uniform(gain = 1.0)
+    # Needs a slightly unusual initialization - hat-tip: Kenta
+    init = Flux.kaiming_uniform(gain = 1.0f0)
     if pairwise
         pair = Dense(c_z => N_head, bias = false; init)
         ipa_linear = Dense(N_head*c_z + N_head*c + 4*N_head*N_point_values => dims)
@@ -65,21 +69,30 @@ function IPCrossA(settings::NamedTuple)
         pair = nothing
         ipa_linear = Dense(N_head*c + 4*N_head*N_point_values => dims)
     end
+    scale_h = if settings.scaling_qk == :none
+        nothing
+    else
+        v = if settings.scaling_qk == :default
+            0.1 .+ range(0, 1, N_head).^2
+        elseif settings isa AbstractVector{<:Real}
+            settings.scaling_qk
+        end
+        Typ.(repeat(v, outer = N_query_points))
+    end
     layers = (
-            proj_qh = Dense(dims => c*N_head, bias = false; init),
-            proj_kh = Dense(dims => c*N_head, bias = false; init),
-            proj_vh = Dense(dims => c*N_head, bias = false; init),
-            proj_qhp = Dense(dims => 3*N_head*N_query_points, bias = false; init),
-            proj_khp = Dense(dims => 3*N_head*N_query_points, bias = false; init),
-            proj_vhp = Dense(dims => 3*N_head*N_point_values, bias = false; init),
-            ipa_linear = ipa_linear,
-            pair = pair,
-            gamma_h = min.(ones(Typ, N_head) .* Typ(0.541),1f2)
-            )
-    
+        proj_qh = Dense(dims => c*N_head, bias = false; init),
+        proj_kh = Dense(dims => c*N_head, bias = false; init),
+        proj_vh = Dense(dims => c*N_head, bias = false; init),
+        proj_qhp = Dense(dims => 3*N_head*N_query_points, bias = false; init),
+        proj_khp = Dense(dims => 3*N_head*N_query_points, bias = false; init),
+        proj_vhp = Dense(dims => 3*N_head*N_point_values, bias = false; init),
+        ipa_linear = ipa_linear,
+        pair = pair,
+        gamma_h = min.(ones(Typ, N_head) .* Typ(0.541), 1f2),
+        scale_h = scale_h,
+    )
     return IPCrossA(settings, layers)
 end
-
 
 
 """
@@ -91,7 +104,7 @@ struct IPA
     layers::NamedTuple
 end
 
-Flux.@functor IPA
+Flux.@layer IPA
 
 function IPA(settings::NamedTuple)
     crossL = IPCrossA(settings)
@@ -107,8 +120,12 @@ end
 
 #Attention props from L (Keys, Values) to R (Queries).
 #Because IPA uses Q'K, our pairwise matrices are R-by-L
-function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, siL::AbstractArray, TiR::Tuple{AbstractArray,AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0, customgrad = true)
-    if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR  
+function (ipa::Union{IPCrossA, IPA})(
+    TiL::Tuple{AbstractArray, AbstractArray}, siL::AbstractArray,
+    TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray;
+    zij = nothing, mask = 0, customgrad = true,
+)    
+    if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR
         @warn "Forcing customgrad to false"
         customgrad = false 
     end
@@ -117,14 +134,14 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
         return ipa_customgrad(ipa, TiL, siL, zij, mask)
     end
 
-    if zij != nothing
+    if !isnothing(zij)
         #This is assuming the dims of zij are c, N_frames_L, N_frames_R, batch
-        @assert size(zij,2) == size(siR,2)
-        @assert size(zij,3) == size(siL,2) 
+        size(zij,2) == size(siR,2) || throw(DimensionMismatch("zij and siR size mismatch"))
+        size(zij,3) == size(siL,2) || throw(DimensionMismatch("zij and siL size mismatch")) 
     end
     if mask != 0
-        @assert size(mask,1) == size(siR, 2)
-        @assert size(mask,2) == size(siL, 2)
+        size(mask,1) == size(siR, 2) || throw(DimensionMismatch("mask and siR size mismatch"))
+        size(mask,2) == size(siL, 2) || throw(DimensionMismatch("mask and siL size mismatch"))
     end
     
     # Get relevant parameters from our ipa struct.
@@ -145,13 +162,20 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     gamma_h = softplus(clamp.(l.gamma_h,Typ(-100), Typ(100))) #Clamping
 
     w_C = Typ(sqrt(2/(9*N_query_points)))
-    dim_scale = Typ(1/sqrt(c))
+    dim_scale = Typ(1/sqrt(c))    
 
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
-    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
-    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
+
+    if isnothing(l.scale_h)
+        qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
+        khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
+    else
+        scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
+        qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:)) .* scale_h
+        khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:)) .* scale_h
+    end
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
     # This should be Q'K, following IPA, which isn't like the regular QK'
@@ -170,7 +194,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
     Tkhp = reshape(_T_R3_no_rrule(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
     Tvhp = _T_R3_no_rrule(vhp, rot_TiL, translate_TiL)
 
-    diffs_glob = unsqueeze(Tqhp, dims = 5) .- unsqueeze(Tkhp, dims = 4)
+    diffs_glob = Flux.unsqueeze(Tqhp, dims = 5) .- Flux.unsqueeze(Tkhp, dims = 4)
     sum_norms_glob = reshape(sum(abs2, diffs_glob, dims = [1,3]),N_head,N_frames_R,N_frames_L,:) #Sum over points for each head
     
 
@@ -186,7 +210,7 @@ function (ipa::Union{IPCrossA, IPA})(TiL::Tuple{AbstractArray,AbstractArray}, si
 
     # Setting mask to the correct dim for broadcasting. 
     if mask != 0 
-        mask = unsqueeze(mask, dims = 1) 
+        mask = Flux.unsqueeze(mask, dims = 1) 
     end
 
     if use_softmax1
@@ -258,10 +282,40 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
-    qhp = reshape(l.proj_qhp(siR),(3,N_head,N_query_points,N_frames_R,:))
-    khp = reshape(l.proj_khp(siL),(3,N_head,N_query_points,N_frames_L,:))
+
+    if isnothing(l.scale_h)
+        qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
+        khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
+    else
+        scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
+        qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:)) .* scale_h
+        khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:)) .* scale_h
+    end
+
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
+
+    # This should be Q'K, following IPA, which isn't like the regular QK'
+    # Dot products between queries and keys.
+                        #FramesR, c, N_head, Batch
+    qhT = permutedims(qh, (3, 1, 2, 4))
+                         #c, FramesL, N_head, Batch
+    kh = permutedims(kh, (1, 3, 2, 4))
+    qhTkh = permutedims(#FramesR, #FramesL, N_head, Batch
+                        batched_mul(qhT,kh)
+                        #N_head, FramesR, FramesL, Batch when we use (3,1,2,4)
+                            ,(3,1,2,4))
+    
+    # Applying our transformations to the queries, keys, and values to put them in the global frame.
+    Tqhp = reshape(T_R3(qhp, rot_TiR,translate_TiR),3,N_head,N_query_points,N_frames_R,:) 
+    Tkhp = reshape(T_R3(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
     Tvhp = T_R3(vhp, rot_TiL, translate_TiL)
+
+    diffs_glob = pair_diff(Tqhp, Tkhp, dims = 4)
+    sum_norms_glob = reshape(sumabs2(diffs_glob, dims = [1,3]),N_head,N_frames_R,N_frames_L,:) #Sum over points for each head
+    
+
+    att_arg = reshape(dim_scale .* qhTkh .- w_C/2 .* gamma_h .* sum_norms_glob,(N_head,N_frames_R,N_frames_L, :))
+
     if pairwise
         w_L = Typ(sqrt(1/3))
         bij = reshape(l.pair(zij),(N_head,N_frames_R,N_frames_L,:))
@@ -272,14 +326,13 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
 
     # Setting mask to the correct dim for broadcasting. 
     if mask != 0 
-        mask = unsqueeze(mask, dims = 1) 
+        mask = Flux.unsqueeze(mask, dims = 1) 
     end
 
-    att_arg = pre_softmax_aijh(qh,kh,TiL,qhp,khp,bij,gamma_h)
     if use_softmax1
-        att = softmax1(att_arg .+ mask, dims = 3)
+        att = softmax1(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
     else
-        att = Flux.softmax(att_arg .+ mask, dims = 3)
+        att = Flux.softmax(w_L .* (att_arg .+ bij) .+ mask, dims = 3)
     end
 
     # can save one allocation here with a grad
@@ -320,7 +373,7 @@ struct IPCrossAStructureModuleLayer
     settings::NamedTuple
     layers::NamedTuple
 end
-Flux.@functor IPCrossAStructureModuleLayer
+Flux.@layer IPCrossAStructureModuleLayer
 function IPCrossAStructureModuleLayer(settings::NamedTuple; dropout_p = 0.1, af = Flux.relu)
     dims = settings.dims
     layers = (
@@ -342,7 +395,7 @@ struct IPAStructureModuleLayer
     settings::NamedTuple
     layers::NamedTuple
 end
-Flux.@functor IPAStructureModuleLayer
+Flux.@layer IPAStructureModuleLayer
 
 function IPAStructureModuleLayer(settings::NamedTuple)
     crossL = IPCrossAStructureModuleLayer(settings)
@@ -384,7 +437,7 @@ struct IPACache
     khp  # 3 × {head × query points} × residues (L) × batch
     vhp  # 3 × {head × point values} × residues (L) × batch
 end
-Flux.@functor IPACache
+Flux.@layer IPACache
 
 """
     IPACache(settings, batchsize)
@@ -429,6 +482,16 @@ function expand(
 
     Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
     Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
+
+    if isnothing(layer.scale_h)
+        Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
+        Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
+    else
+        scale_h = reshape(layer.scale_h, (1,N_head*N_query_points,1,1))
+        Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B)) .* scale_h
+        Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B)) .* scale_h
+    end
+
     Δvhp = reshape(calldense(layer.proj_vhp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
 
     kh = cat(cache.kh, Δkh, dims = 3)
@@ -455,7 +518,7 @@ function expand(
         (3, N_head, N_point_values, L + ΔL, B)
     )
 
-    diffs = unsqueeze(ΔTqhp, dims = 5) .- unsqueeze(Tkhp, dims = 4)
+    diffs = Flux.unsqueeze(ΔTqhp, dims = 5) .- Flux.unsqueeze(Tkhp, dims = 4)
     sum_norms = sumdrop(abs2, diffs, dims = (1, 3))
 
     w_C = sqrt(2f0 / 9N_query_points)
@@ -463,7 +526,7 @@ function expand(
     Δatt_logits = reshape(dim_scale .* ΔqhTkh .- w_C/2 .* gamma_h .* sum_norms, (N_head, ΔR, L + ΔL, B))
 
     if mask != 0
-        mask = unsqueeze((mask[R+1:R+ΔR,1:L+ΔL]), dims = 1)
+        mask = Flux.unsqueeze((mask[R+1:R+ΔR,1:L+ΔL]), dims = 1)
     end
 
     if pairwise

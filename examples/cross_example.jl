@@ -1,7 +1,6 @@
 using LinearAlgebra
 using StatsBase
 using Flux
-using Flux:unsqueeze
 using CUDA
 
 include("../src/layers.jl")

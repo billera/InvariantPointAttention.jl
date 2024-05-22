@@ -1,12 +1,11 @@
 using InvariantPointAttention
-using InvariantPointAttention: get_rotation, get_translation
-using InvariantPointAttention: softmax1
-using Zygote:gradient
-using Zygote:withgradient
-using Flux: params
-using InvariantPointAttention: T_R3, T_R3_inv, _T_R3_no_rrule, _T_R3_inv_no_rrule, diff_sum_glob, _diff_sum_glob_no_rrule, pair_diff, _pair_diff_no_rrule
-using InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_rrule
 using Test
+
+import InvariantPointAttention: get_rotation, get_translation, softmax1
+import Zygote: gradient, withgradient
+import Flux: params
+import InvariantPointAttention: T_R3, T_R3_inv, _T_R3_no_rrule, _T_R3_inv_no_rrule, diff_sum_glob, _diff_sum_glob_no_rrule, pair_diff, _pair_diff_no_rrule
+import InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_rrule
 
 @testset "InvariantPointAttention.jl" begin
     # Write your tests here.
@@ -87,16 +86,16 @@ using Test
         framesR = 10
         dim = 10
         
-        siL = Float64.(randn(dim,framesL,batch_size)) 
+        siL = randn(Float32, dim, framesL, batch_size) 
         siR = siL
         # Use CLOPS.jl shape notation
-        TiL = (Float64.(get_rotation(framesL,batch_size)), randn(Float64, 3,framesL,batch_size)) 
+        TiL = (get_rotation(Float32, framesL, batch_size), randn(Float32, 3, framesL, batch_size)) 
         TiR = TiL 
-        zij = randn(Float64, 16, framesR, framesL, batch_size) 
+        zij = randn(Float32, 16, framesR, framesL, batch_size) 
 
-        ipa = IPCrossA(IPA_settings(dim; use_softmax1 = true, c_z = 16, Typ = Float64))  
+        ipa = IPCrossA(IPA_settings(dim; use_softmax1 = true, c_z = 16, Typ = Float32))  
         # Batching on mask
-        mask = right_to_left_mask(framesL)[:,:,repeat(1:1, inner = batch_size)]
+        mask = right_to_left_mask(framesL)[:, :, ones(Int, batch_size)]
         ps = params(ipa)
         
         lz,gs = withgradient(ps) do 
@@ -108,7 +107,7 @@ using Test
         end
         
         for (gs, zygotegs) in zip(keys(gs),keys(zygotegs))
-            @test maximum(abs.(gs .- zygotegs)) < 1f-5
+            @test maximum(abs.(gs .- zygotegs)) < 2f-5
         end
         #@show lz, lz2
         @test abs.(lz - lz2) < 1f-5
@@ -119,16 +118,16 @@ using Test
         framesR = 101
         dim = 768
         
-        siL = Float32.(randn(dim,framesL,batch_size)) 
-        siR = Float32.(randn(dim,framesR,batch_size))
+        siL = randn(Float32, dim,framesL, batch_size) 
+        siR = randn(Float32, dim,framesR, batch_size)
         
-        T_locL = (get_rotation(framesL,batch_size), get_translation(framesL,batch_size)) 
-        T_locR = (get_rotation(framesR,batch_size), get_translation(framesR,batch_size)) 
+        T_locL = (get_rotation(framesL, batch_size), get_translation(framesL, batch_size)) 
+        T_locR = (get_rotation(framesR, batch_size), get_translation(framesR, batch_size)) 
 
         # Get 1 global SE(3) transformation for each batch.
         T_glob = (get_rotation(batch_size), get_translation(batch_size))
-        T_GlobL = (stack([T_glob[1] for i in 1:framesL],dims = 3), stack([T_glob[2] for i in 1:framesL],dims = 3))
-        T_GlobR = (stack([T_glob[1] for i in 1:framesR],dims = 3), stack([T_glob[2] for i in 1:framesR],dims = 3))
+        T_GlobL = (stack([T_glob[1] for i in 1:framesL],dims = 3), stack([T_glob[2] for i in 1:framesL], dims = 3))
+        T_GlobR = (stack([T_glob[1] for i in 1:framesR],dims = 3), stack([T_glob[2] for i in 1:framesR], dims = 3))
         
         T_newL = InvariantPointAttention.T_T(T_GlobL,T_locL)
         T_newR = InvariantPointAttention.T_T(T_GlobR,T_locR)
@@ -197,7 +196,7 @@ using Test
             si, cache = InvariantPointAttention.expand(ipa, cache, TiL, siL, 1, TiR, siR, 1; zij)
             push!(siRs, si)
         end
-        @test cat(siRs..., dims = 2) ≈ ipa(TiL, siL, TiR, siR; zij, mask = Float32.(right_to_left_mask(6)))
+        @test cat(siRs..., dims = 2) ≈ ipa(TiL, siL, TiR, siR; zij, mask = right_to_left_mask(6))
     end
 
 

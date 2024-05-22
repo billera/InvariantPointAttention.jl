@@ -1,9 +1,7 @@
 using Pkg; Pkg.activate(".")
 using Revise
 using InvariantPointAttention
-using InvariantPointAttention: get_rotation, get_translation
-using InvariantPointAttention: T_T
-using InvariantPointAttention:sumdrop
+import InvariantPointAttention: get_rotation, get_translation, T_T, sumdrop
 
 
 batch_size = 3
