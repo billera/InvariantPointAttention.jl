@@ -3,7 +3,7 @@
 Takes a 3xN matrix of imaginary quaternion components and returns a 4xN matrix of unit quaternions.
 """
 function bcds2quats(bcd::AbstractMatrix{T}) where T <: Real
-    quats = vcat(ones(T, size(bcd, 2)), bcd)
+    quats = vcat(ones(T, 1, size(bcd, 2)), bcd)
     norms = sqrt.(one(T) .+ sum(abs2, bcd, dims=1))
     return quats ./ norms
 end
