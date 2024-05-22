@@ -33,18 +33,18 @@ IPA_settings(
     c_z = 0,
     Typ = Float32,
     use_softmax1 = false,
-    head_scaling = nothing, #(i, n) -> 0.1 + (i / n)^2,
-) = (
-    dims = dims,
-    c = c,
-    N_head = N_head,
-    N_query_points = N_query_points,
-    N_point_values = N_point_values,
-    c_z = c_z,
-    Typ = Typ,
+    scaling_qk = :default, # :none, :default, or a vector of length N_head
+) = (;
+    dims,
+    c,
+    N_head,
+    N_query_points,
+    N_point_values,
+    c_z,
+    Typ,
     pairwise = c_z > 0,
-    use_softmax1 = use_softmax1,
-    head_scaling = head_scaling,
+    use_softmax1,
+    scaling_qk,
 )
 
 
@@ -69,6 +69,16 @@ function IPCrossA(settings::NamedTuple)
         pair = nothing
         ipa_linear = Dense(N_head*c + 4*N_head*N_point_values => dims)
     end
+    scale_h = if settings.scaling_qk == :none
+        nothing
+    else
+        v = if settings.scaling_qk == :default
+            0.1 .+ range(0, 1, N_head).^2
+        elseif settings isa AbstractVector{<:Real}
+            settings.scaling_qk
+        end
+        Typ.(repeat(v, outer = N_query_points))
+    end
     layers = (
         proj_qh = Dense(dims => c*N_head, bias = false; init),
         proj_kh = Dense(dims => c*N_head, bias = false; init),
@@ -79,14 +89,10 @@ function IPCrossA(settings::NamedTuple)
         ipa_linear = ipa_linear,
         pair = pair,
         gamma_h = min.(ones(Typ, N_head) .* Typ(0.541), 1f2),
+        scale_h = scale_h,
     )
-    if haskey(settings, :head_scaling)
-        layers = (layers...,
-            scale_h = !isnothing(settings.head_scaling) ? repeat(Typ.(settings.head_scaling.(1:N_head, N_head)), outer=N_query_points) : nothing)
-    end
     return IPCrossA(settings, layers)
 end
-
 
 
 """
@@ -116,8 +122,9 @@ end
 #Because IPA uses Q'K, our pairwise matrices are R-by-L
 function (ipa::Union{IPCrossA, IPA})(
     TiL::Tuple{AbstractArray, AbstractArray}, siL::AbstractArray,
-    TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray; zij = nothing, mask = 0, customgrad = true)
-    
+    TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray;
+    zij = nothing, mask = 0, customgrad = true,
+)    
     if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR
         @warn "Forcing customgrad to false"
         customgrad = false 
@@ -129,12 +136,12 @@ function (ipa::Union{IPCrossA, IPA})(
 
     if !isnothing(zij)
         #This is assuming the dims of zij are c, N_frames_L, N_frames_R, batch
-        size(zij,2) == size(siR,2) || throw(DimensionMismatch("zij and siR must have the same number of frames"))
-        size(zij,3) == size(siL,2) || throw(DimensionMismatch("zij and siL must have the same number of frames")) 
+        size(zij,2) == size(siR,2) || throw(DimensionMismatch("zij and siR size mismatch"))
+        size(zij,3) == size(siL,2) || throw(DimensionMismatch("zij and siL size mismatch")) 
     end
     if mask != 0
-        size(mask,1) == size(siR, 2) || throw(DimensionMismatch("mask and siR must have the same number of frames"))
-        size(mask,2) == size(siL, 2) || throw(DimensionMismatch("mask and siL must have the same number of frames"))
+        size(mask,1) == size(siR, 2) || throw(DimensionMismatch("mask and siR size mismatch"))
+        size(mask,2) == size(siL, 2) || throw(DimensionMismatch("mask and siL size mismatch"))
     end
     
     # Get relevant parameters from our ipa struct.
@@ -164,7 +171,7 @@ function (ipa::Union{IPCrossA, IPA})(
     khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
-    if haskey(ipa, :scale_h) && !isnothing(l.scale_h)
+    if !isnothing(l.scale_h)
         scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
         qhp .*= scale_h
         khp .*= scale_h
@@ -282,7 +289,7 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
-    if haskey(l, :scale_h) && !isnothing(l.scale_h)
+    if !isnothing(l.scale_h)
         scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
         qhp .*= scale_h
         khp .*= scale_h
@@ -478,7 +485,7 @@ function expand(
     Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
     Δvhp = reshape(calldense(layer.proj_vhp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
 
-    if haskey(layer, :scale_h) && !isnothing(layer.scale_h)
+    if !isnothing(layer.scale_h)
         scale_h = reshape(layer.scale_h, (1,N_head*N_query_points,1,1))
         Δqhp .*= scale_h
         Δkhp .*= scale_h
