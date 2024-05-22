@@ -167,15 +167,16 @@ function (ipa::Union{IPCrossA, IPA})(
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
-    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
-    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
-    vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
-    if !isnothing(l.scale_h)
+    if isnothing(l.scale_h)
+        qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
+        khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
+    else
         scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
-        qhp .*= scale_h
-        khp .*= scale_h
+        qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:)) .* scale_h
+        khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:)) .* scale_h
     end
+    vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
     # This should be Q'K, following IPA, which isn't like the regular QK'
     # Dot products between queries and keys.
@@ -285,15 +286,17 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
-    qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
-    khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
-    vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
-    if !isnothing(l.scale_h)
+    if isnothing(l.scale_h)
+        qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:))
+        khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:))
+    else
         scale_h = reshape(l.scale_h, (1,N_head*N_query_points,1,1))
-        qhp .*= scale_h
-        khp .*= scale_h
+        qhp = reshape(l.proj_qhp(siR),(3,N_head*N_query_points,N_frames_R,:)) .* scale_h
+        khp = reshape(l.proj_khp(siL),(3,N_head*N_query_points,N_frames_L,:)) .* scale_h
     end
+
+    vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
 
     # This should be Q'K, following IPA, which isn't like the regular QK'
     # Dot products between queries and keys.
@@ -483,13 +486,17 @@ function expand(
 
     Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
     Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
-    Δvhp = reshape(calldense(layer.proj_vhp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
 
-    if !isnothing(layer.scale_h)
+    if isnothing(layer.scale_h)
+        Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
+        Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B))
+    else
         scale_h = reshape(layer.scale_h, (1,N_head*N_query_points,1,1))
-        Δqhp .*= scale_h
-        Δkhp .*= scale_h
+        Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B)) .* scale_h
+        Δkhp = reshape(calldense(layer.proj_khp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_query_points, ΔL, B)) .* scale_h
     end
+
+    Δvhp = reshape(calldense(layer.proj_vhp, siL[:,L+1:L+ΔL,:]), (3, N_head * N_point_values, ΔL, B))
 
     kh = cat(cache.kh, Δkh, dims = 3)
     vh = cat(cache.vh, Δvh, dims = 3)
