@@ -2,7 +2,7 @@
 """
 Takes a 3xN matrix of imaginary quaternion components, `bcd`, sets the real part to `a`, and normalizes to unit quaternions.
 """
-function bcd_to_quat(bcd::AbstractMatrix{T}, a::T=T(1)) where T <: Real
+function bcds2quats(bcd::AbstractMatrix{T}, a::T=T(1)) where T <: Real
     norms = sqrt.(a .+ sum(abs2, bcd, dims=1))
     return vcat(a ./ norms, bcd ./ norms)
 end
