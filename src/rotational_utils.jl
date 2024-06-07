@@ -52,31 +52,28 @@ get_rotation(dims...; T::Type{<:Real}=Float32) = get_rotation(T, dims...)
 Generates random translations of given size.
 """
 get_translation(T::Type{<:Real}, dims...) = randn(T, 3, 1, dims...)
-get_translation(dims...; T::Type{<:Real}=Float32) = get_translation(T, dims...) 
+get_translation(dims...; T::Type{<:Real}=Float32) = get_translation(T, dims...)
+
+function _batched_transpose(data::A) where {T,N,A<:AbstractArray{T,N}}
+    perm = (2,1,3:N...)
+    PermutedDimsArray{T,N,perm,perm,A}(data)
+end
 
 """
 Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
 to N batches of m points in R3, i.e., mat ∈ R^(3 x m x N) ↦ T(mat) ∈ R^(3 x m x N).
 Note here that rotations here are represented in matrix form. 
 """
-function T_R3(mat, rot, trans)
-    rotc = reshape(rot, 3, 3, :)  
-    trans = reshape(trans, 3, 1, :)
-    matc = reshape(mat, 3, size(mat, 2), :) 
-    rotated_mat = batched_mul(rotc, matc) .+ trans
-    return reshape(rotated_mat, size(mat))
+function T_R3(x::AbstractArray{T,N}, R::AbstractArray{T,N}, t::AbstractArray{T,N}) where {T,N}
+    return batched_mul(R, x) .+ t
 end
 
 """ 
 Applies the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N batches of m points in R3,
 such that T^-1(T*x) = T^-1(Rx+t) =  R^T(Rx+t-t) = x.
 """
-function T_R3_inv(mat, rot, trans)
-    rotc = batched_transpose(reshape(rot, 3, 3, :))
-    matc = reshape(mat, 3, size(mat, 2), :)
-    trans = reshape(trans, 3,1,:)
-    rotated_mat = batched_mul(rotc, matc .- trans)
-    return reshape(rotated_mat, size(mat))
+function T_R3_inv(x::AbstractArray{T,N}, R::AbstractArray{T,N}, t::AbstractArray{T,N}) where {T,N}
+    return batched_mul(_batched_transpose(R), x .- t)
 end
 
 """
@@ -106,7 +103,7 @@ end
 
 unzip(a) = map(x->getfield.(a, x), fieldnames(eltype(a)))
 
-calculate_residue_centroid(residue_xyz::AbstractMatrix) = reshape(mean(residue_xyz[:, 1:3], dims = 2), 3)
+centroid(coords::AbstractMatrix) = vec(sum(coords; dims=2)) / size(coords, 2)
 
 """
 Get frame from residue
@@ -117,7 +114,7 @@ function calculate_residue_rotation_and_translation(residue_xyz::AbstractMatrix)
     Ca = residue_xyz[:, 2] # We use the centroid instead of the Ca - not 100% sure if this is correct
     C = residue_xyz[:, 3]
 
-    t = calculate_residue_centroid(residue_xyz)
+    t = centroid(residue_xyz)
 
     v1 = C - t
     v2 = N - t

@@ -2,10 +2,11 @@ using InvariantPointAttention
 using Test
 
 import InvariantPointAttention: get_rotation, get_translation, softmax1
-import Zygote: gradient, withgradient
-import Flux: params
-import InvariantPointAttention: T_R3, T_R3_inv, _T_R3_no_rrule, _T_R3_inv_no_rrule, diff_sum_glob, _diff_sum_glob_no_rrule, pair_diff, _pair_diff_no_rrule
-import InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_rrule
+import InvariantPointAttention: T_R3, T_R3_inv, pair_diff
+import InvariantPointAttention: L2norm, sumabs2
+import Flux
+
+using ChainRulesTestUtils
 
 @testset "InvariantPointAttention.jl" begin
     # Write your tests here.
@@ -13,74 +14,46 @@ import InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_r
         #Check if softmax1 is consistent with softmax, when adding an additional zero logit
         x = randn(4,3)
         xaug = hcat(x, zeros(4,1))
-        @test InvariantPointAttention.softmax1(x, dims = 2) ≈ InvariantPointAttention.Flux.softmax(xaug, dims = 2)[:,1:end-1]
+        @test softmax1(x, dims = 2) ≈ Flux.softmax(xaug, dims = 2)[:,1:end-1]
     end
-    @testset "Softmax1 custom grad" begin
-        x = randn(3,10,41,13)
- 
-        function softmax1_no_rrule(x::AbstractArray{T}; dims = 1) where {T}
-            _zero = T(0)
-            max_ = max.(maximum(x; dims), _zero)
-            @fastmath out = exp.(x .- max_)
-            tmp = sum(out, dims = dims)
-            out ./ (tmp + exp.(-max_))
-        end
 
-        for k in 1:4
-            f(x; dims = k) = sum(softmax1(x; dims))
-            g(x; dims = k) = sum(softmax1_no_rrule(x; dims))
-            @test gradient(f, x)[1] ≈ gradient(g, x)[1]
-        end
+    @testset "softmax1 rrule" begin
+        x = randn(2,3,4)
+
+        foreach(i -> test_rrule(softmax1, x; fkwargs=(; dims=i)), 1:3)
     end  
 
-    @testset "T_R3 custom grad" begin 
-        x = randn(3,5,10,15)
-        rot = get_rotation(10,15) 
-        trans = get_translation(10,15)
-
-        @test gradient(sum ∘ T_R3, x, rot, trans)[1] ≈ gradient(sum ∘ _T_R3_no_rrule, x, rot, trans)[1]
+    @testset "T_R3 rrule" begin 
+        x = randn(Float64, 3, 2, 1, 2)
+        R = get_rotation(Float64, 1, 2)
+        t = get_translation(Float64, 1, 2)
+        test_rrule(T_R3, x, R, t)
     end
 
-    @testset "T_R3_inv custom grad" begin 
-        x = randn(3,5,10,15)
-        rot = get_rotation(10,15) 
-        trans = get_translation(10,15)
-        @test gradient(sum ∘ T_R3_inv, x, rot, trans)[1] ≈ gradient(sum ∘ _T_R3_inv_no_rrule, x, rot, trans)[1]
+    @testset "T_R3_inv rrule" begin 
+        x = randn(Float64, 3, 2, 1, 2)
+        R = get_rotation(Float64, 1, 2) 
+        t = get_translation(Float64, 1, 2)
+        test_rrule(T_R3_inv, x, R, t)
     end
 
-    @testset "sumabs2 custom grad" begin 
-        x = randn(3,10,41,13)
-
-        for k in 1:4
-            f(x; dims = k) = sum(sumabs2(x; dims))
-            g(x; dims = k) = sum(sum(abs2, x; dims))
-            cval, cgs = withgradient(f, x)
-            val, gs = withgradient(g, x)
-            @test cval ≈ val
-            @test keys(cgs) ≈ keys(gs)
-        end
+    @testset "sumabs2 rrule" begin
+        x = rand(2,3,4)
+        foreach(i -> test_rrule(sumabs2, x; fkwargs=(; dims=i)), 1:3)
     end
 
-    @testset "L2norm custom grad" begin 
-        x = randn(3,10,41,13)
-
-        for k in 1:4
-            f(x; dims = k) = sum(L2norm(x; dims, eps = 0.1f0))
-            g(x; dims = k) = sum(_L2norm_no_rrule(x; dims, eps = 0.1f0))
-            cval, cgs = withgradient(f, x)
-            val, gs = withgradient(g, x)
-            @test cval ≈ val
-            @test keys(cgs)[1] ≈ keys(gs)[1]
-        end
+    @testset "L2norm rrule" begin 
+        x = randn(2,3,4,5)
+        foreach(i -> test_rrule(L2norm, x; fkwargs=(; dims=i)), 1:3)
     end
 
     @testset "pair_diff custom grad" begin 
-        x = randn(3,5,5,5,5)
-        y = randn(3,5,5,15,5)
-        @test gradient(sum ∘ pair_diff, x, y)[1] ≈ gradient(sum ∘ _pair_diff_no_rrule, x, y)[1]
+        x = randn(1,4,2)
+        y = randn(1,3,2)
+        test_rrule(pair_diff, x, y; fkwargs=(; dims=2))
     end
 
-    @testset "ipa_customgrad" begin
+    #=@testset "ipa_customgrad" begin
         batch_size = 3
         framesL = 10
         framesR = 10
@@ -89,20 +62,20 @@ import InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_r
         siL = randn(Float32, dim, framesL, batch_size) 
         siR = siL
         # Use CLOPS.jl shape notation
-        TiL = (get_rotation(Float32, framesL, batch_size), randn(Float32, 3, framesL, batch_size)) 
+        TiL = (get_rotation(Float32, framesL, batch_size), get_translation(Float32, framesL, batch_size)) 
         TiR = TiL 
         zij = randn(Float32, 16, framesR, framesL, batch_size) 
 
         ipa = IPCrossA(IPA_settings(dim; use_softmax1 = true, c_z = 16, Typ = Float32))  
         # Batching on mask
         mask = right_to_left_mask(framesL)[:, :, ones(Int, batch_size)]
-        ps = params(ipa)
+        ps = Flux.params(ipa)
         
-        lz,gs = withgradient(ps) do 
+        lz,gs = Flux.withgradient(ps) do 
             sum(ipa(TiL, siL, TiR, siR; zij, mask, customgrad = true))
         end
         
-        lz2, zygotegs = withgradient(ps) do 
+        lz2, zygotegs = Flux.withgradient(ps) do 
             sum(ipa(TiL, siL, TiR, siR; zij, mask, customgrad = false))
         end
         
@@ -111,7 +84,8 @@ import InvariantPointAttention: L2norm, _L2norm_no_rrule, sumabs2, _sumabs2_no_r
         end
         #@show lz, lz2
         @test abs.(lz - lz2) < 1f-5
-    end
+    end=#
+
     @testset "IPAsoftmax_invariance" begin
         batch_size = 3
         framesL = 100

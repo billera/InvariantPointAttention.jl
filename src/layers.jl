@@ -190,9 +190,9 @@ function (ipa::Union{IPCrossA, IPA})(
                             ,(3,1,2,4))
     
     # Applying our transformations to the queries, keys, and values to put them in the global frame.
-    Tqhp = reshape(_T_R3_no_rrule(qhp, rot_TiR,translate_TiR),3,N_head,N_query_points,N_frames_R,:) 
-    Tkhp = reshape(_T_R3_no_rrule(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
-    Tvhp = _T_R3_no_rrule(vhp, rot_TiL, translate_TiL)
+    Tqhp = reshape(T_R3(qhp, rot_TiR,translate_TiR),3,N_head,N_query_points,N_frames_R,:) 
+    Tkhp = reshape(T_R3(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
+    Tvhp = T_R3(vhp, rot_TiL, translate_TiL)
 
     diffs_glob = Flux.unsqueeze(Tqhp, dims = 5) .- Flux.unsqueeze(Tkhp, dims = 4)
     sum_norms_glob = reshape(sum(abs2, diffs_glob, dims = [1,3]),N_head,N_frames_R,N_frames_L,:) #Sum over points for each head
@@ -233,7 +233,7 @@ function (ipa::Union{IPCrossA, IPA})(
     end
 
     #ohp_r were in the global frame, so we put those ba ck in the recipient local
-    ohp = _T_R3_inv_no_rrule(ohp_r, rot_TiR, translate_TiR) 
+    ohp = T_R3_inv(ohp_r, rot_TiR, translate_TiR) 
     normed_ohp = sqrt.(sum(abs2, ohp,dims = 1) .+ Typ(0.000001f0)) #Adding eps
 
     catty = vcat(
@@ -350,7 +350,7 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
         ohp_r = reshape(sum(broadcast_att_ohp.*broadcast_tvhp,dims=5),3,N_head*N_point_values,N_frames_R,:)
     end
     #ohp_r were in the global frame, so we put those back in the recipient local
-    ohp = _T_R3_inv_no_rrule(ohp_r, rot_TiR, translate_TiR) 
+    ohp = T_R3_inv(ohp_r, rot_TiR, translate_TiR) 
     normed_ohp = sqrt.(sumabs2(ohp, dims = 1) .+ Typ(0.000001f0)) #Adding eps
     catty = vcat(
         reshape(oh, N_head*c, N_frames_R,:),
@@ -510,11 +510,11 @@ function expand(
     rot_TiR, translate_TiR = TiR
     ΔTqhp = reshape(T_R3(Δqhp, (rot_TiR[:,:,R+1:R+ΔR,:]), (translate_TiR[:,:,R+1:R+ΔR,:])), (3, N_head, N_query_points, ΔR, B))
     Tkhp = reshape(
-        T_R3(reshape(khp, (3, N_head * N_query_points, (L + ΔL) * B)), (rot_TiL[:,:,1:L+ΔL,:]), (translate_TiL[:,:,1:L+ΔL,:])),
+        T_R3(reshape(khp, (3, N_head * N_query_points, (L + ΔL), B)), (rot_TiL[:,:,1:L+ΔL,:]), (translate_TiL[:,:,1:L+ΔL,:])),
         (3, N_head, N_query_points, L + ΔL, B)
     )
     Tvhp = reshape(
-        T_R3(reshape(vhp, (3, N_head * N_point_values, (L + ΔL) * B)), (rot_TiL[:,:,1:L+ΔL,:]), (translate_TiL[:,:,1:L+ΔL,:])),
+        T_R3(reshape(vhp, (3, N_head * N_point_values, (L + ΔL), B)), (rot_TiL[:,:,1:L+ΔL,:]), (translate_TiL[:,:,1:L+ΔL,:])),
         (3, N_head, N_point_values, L + ΔL, B)
     )
 
@@ -572,7 +572,7 @@ function expand(
                 )  .+
                     reshape(translate_TiR[:,:,R+1:R+ΔR,:],  (3, 1,      1,               ΔR, B)) .*
                     reshape(1 .- sum(Δatt, dims = 3),       (1, N_head, 1,               ΔR, B)),
-            (3, N_head * N_point_values, ΔR * B)
+            (3, N_head * N_point_values, ΔR, B)
         )
     else
         ohp_pre = reshape(
@@ -582,14 +582,13 @@ function expand(
                 reshape(Tvhp, (3, N_head, N_point_values,  1, L + ΔL, B)),
                 dims = 5,
             ),
-            (3, N_head * N_point_values, ΔR * B)
+            (3, N_head * N_point_values, ΔR, B)
         )
     end
 
     ohp = reshape(
         T_R3_inv(
-            ohp_pre
-            ,
+            ohp_pre,
             (rot_TiR[:,:,R+1:R+ΔR,:]),
             (translate_TiR[:,:,R+1:R+ΔR,:])
         ),

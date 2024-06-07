@@ -10,10 +10,6 @@ function sumabs2(x::AbstractArray{T}; dims = 1) where {T}
     sum(abs2, x; dims)
 end
 
-function _sumabs2_no_rrule(x::AbstractArray{T}; dims = 1) where {T}
-    sum(abs2, x; dims)
-end
-
 function ChainRulesCore.rrule(::typeof(sumabs2), x; dims = 1)
     function sumabs2_pullback(_Δ)
         Δ = unthunk(_Δ)
@@ -25,10 +21,6 @@ end
 
 function L2norm(x::AbstractArray{T}; dims = 1, eps = 1f-7) where {T}
     sqrt.(sumabs2(x; dims) .+ eps )
-end
-
-function _L2norm_no_rrule(x::AbstractArray{T}; dims = 1, eps = 1f-7) where {T}
-    sqrt.(sum(abs2, x; dims) .+ eps )
 end
 
 function ChainRulesCore.rrule(::typeof(L2norm), x::AbstractArray{T}; dims = 1, eps = 1f-7) where {T}
@@ -44,91 +36,39 @@ function pair_diff(A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}
     return Flux.unsqueeze(A, dims = dims + 1) .- Flux.unsqueeze(B, dims = dims)
 end
 
-function _pair_diff_no_rrule(A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}
-    return Flux.unsqueeze(A, dims = dims + 1) .- Flux.unsqueeze(B, dims = dims)
-end
-
-function ChainRulesCore.rrule(::typeof(pair_diff), A::AbstractArray{T}, B::AbstractArray{T}; dims = 4) where {T}
+function ChainRulesCore.rrule(::typeof(pair_diff), A::AbstractArray{T}, B::AbstractArray{T}; dims=4) where {T}
     y = pair_diff(A, B; dims)
     function pair_diff_pullback(_Δ)
         Δ = unthunk(_Δ)
-        return (NoTangent(), @thunk(sumdrop(Δ; dims = dims + 1)), @thunk(-sumdrop(Δ; dims = dims)))
+        return (NoTangent(), @thunk(sumdrop(Δ; dims=dims+1)), @thunk(-sumdrop(Δ; dims=dims)))
     end
     return y, pair_diff_pullback
 end
 
-function ChainRulesCore.rrule(::typeof(T_R3), A, R, t; dims = 1)
-    function T_R3_pullback(_Δ)
-        Δ = unthunk(_Δ)
-        ΔA = @thunk begin
-            batch_size = size(A)[3:end]
-            R2 = reshape(R, size(R,1), size(R,2), :)
-            Δ2 = reshape(Δ, size(Δ,1), size(Δ,2), :)
-            ΔA = batched_mul(batched_adjoint(R2), Δ2)
-            reshape(ΔA, size(ΔA, 1), size(ΔA, 2), batch_size...)
-        end
-        ΔR = @thunk begin
-            batch_size = size(R)[3:end]
-            A2 = reshape(A, size(A,1), size(A,2), :)
-            Δ2 = reshape(Δ, size(Δ,1), size(Δ,2), :)
-            ΔR = batched_mul(Δ2, batched_adjoint(A2))
-            reshape(ΔR, size(ΔR, 1), size(ΔR, 2), batch_size...)
-        end
-        Δt = @thunk begin 
-            # Case for broadcasting t along dim = 2.
-            size(t,2) == 1 ? tmp = sum(Δ, dims = 2) : tmp = Δ
-            tmp
-        end
-        return (NoTangent(), ΔA, ΔR, Δt)
+function ChainRulesCore.rrule(::typeof(T_R3), x::AbstractArray{T,N}, R::AbstractArray{T,N}, t::AbstractArray{T,N}) where {T,N}
+    function T_R3_pullback(_Δy)
+        Δy = unthunk(_Δy)
+        Δx = @thunk(batched_mul(_batched_transpose(R), Δy))
+        ΔR = @thunk(batched_mul(Δy, _batched_transpose(x)))
+        Δt = @thunk(sum(Δy, dims=2))
+        return (NoTangent(), Δx, ΔR, Δt)
     end
-    return T_R3(A, R, t), T_R3_pullback
+    return T_R3(x, R, t), T_R3_pullback
 end
 
-function _T_R3_no_rrule(mat, rot,trans)
-    size_mat = size(mat)
-    rotc = reshape(rot, 3,3,:)  
-    trans = reshape(trans, 3,1,:)
-    matc = reshape(mat,3,size(mat,2),:) 
-    rotated_mat = batched_mul(rotc,matc) .+ trans
-    return reshape(rotated_mat,size_mat)
-end 
-
-function ChainRulesCore.rrule(::typeof(T_R3_inv), A, R, t; dims = 1)
-    function T_R3_inv_pullback(_Δ)
-        Δ = unthunk(_Δ)
-        ΔA = @thunk begin
-            batch_size = size(A)[3:end]
-            R2 = reshape(R, size(R,1), size(R,2), :)
-            Δ2 = reshape(Δ, size(Δ,1), size(Δ,2), :)
-            ΔA = batched_mul(R2, Δ2)
-            reshape(ΔA, size(ΔA, 1), size(ΔA, 2), batch_size...)
-        end
-        
-        ΔR = @thunk begin
-            batch_size = size(R)[3:end]
-            A2 = reshape(A, size(A,1), size(A,2), :)
-            Δ2 = reshape(Δ, size(Δ,1), size(Δ,2), :)
-            ΔR = batched_mul(A2, batched_adjoint(Δ2))
-            reshape(ΔR, size(ΔR, 1), size(ΔR, 2), batch_size...)
-        end
-        Δt = @thunk begin 
-            # Case for broadcasting t along dim = 2.
-            size(t,2) == 1 ? tmp = sum(Δ, dims = 2) : tmp = Δ
-            tmp
-        end
-        return (NoTangent(), ΔA, ΔR, Δt)
+function ChainRulesCore.rrule(::typeof(T_R3_inv), x::AbstractArray{T,N}, R::AbstractArray{T,N}, t::AbstractArray{T,N}) where {T,N}
+    z = x .- t
+    y = batched_mul(_batched_transpose(R), z)
+    function T_R3_inv_pullback(_Δy)
+        Δy = unthunk(_Δy)
+        Δx = @thunk(batched_mul(R, Δy))
+        ΔR = @thunk(batched_mul(z, _batched_transpose(Δy)))
+        Δt = @thunk(-sum(Δx, dims=2)) # t is in the same position as x, but negated and broadcasted
+        return (NoTangent(), Δx, ΔR, Δt)
     end
-    return T_R3_inv(A, R, t), T_R3_inv_pullback
+    return T_R3_inv(x, R, t), T_R3_inv_pullback
 end
 
-function _T_R3_inv_no_rrule(mat, rot,trans)
-    size_mat = size(mat)
-    rotc = batched_transpose(reshape(rot, 3,3,:))
-    matc = reshape(mat,3,size(mat,2),:)
-    trans = reshape(trans, 3,1,:)
-    rotated_mat = batched_mul(rotc,matc .- trans)
-    return reshape(rotated_mat,size_mat)
-end 
 #=
 function diff_sum_glob(T, q, k)
     bs = size(q) 
@@ -143,7 +83,7 @@ function _diff_sum_glob_no_rrule(T,q,k)
     bs = size(q)
     qresh = reshape(q, size(q,1), size(q,2)*size(q,3), size(q,4),size(q,5))
     kresh = reshape(k, size(k,1), size(k,2)*size(k,3), size(k,4),size(k,5))
-    Tq, Tk = _T_R3_no_rrule(qresh,T[1],T[2]),_T_R3_no_rrule(kresh,T[1],T[2])
+    Tq, Tk = T_R3_no_rrule(qresh,T[1],T[2]),T_R3_no_rrule(kresh,T[1],T[2])
     Tq, Tk = reshape(Tq, bs...), reshape(Tk, bs...)
     diffs = _sumabs2_no_rrule(_pair_diff_no_rrule(Tq, Tk, dims = 4),dims=[1,3])
 end=#
