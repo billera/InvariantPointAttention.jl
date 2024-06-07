@@ -53,7 +53,7 @@ using ChainRulesTestUtils
         test_rrule(pair_diff, x, y; fkwargs=(; dims=2))
     end
 
-    #=@testset "ipa_customgrad" begin
+    @testset "ipa_customgrad" begin
         batch_size = 3
         framesL = 10
         framesR = 10
@@ -84,7 +84,7 @@ using ChainRulesTestUtils
         end
         #@show lz, lz2
         @test abs.(lz - lz2) < 1f-5
-    end=#
+    end
 
     @testset "IPAsoftmax_invariance" begin
         batch_size = 3

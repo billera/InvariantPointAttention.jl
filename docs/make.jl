@@ -6,7 +6,6 @@ DocMeta.setdocmeta!(InvariantPointAttention, :DocTestSetup, :(using InvariantPoi
 makedocs(;
     modules=[InvariantPointAttention],
     authors="Ben Murrell <murrellb@gmail.com> and contributors",
-    repo="https://github.com/murrellb/InvariantPointAttention.jl/blob/{commit}{path}#{line}",
     sitename="InvariantPointAttention.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
@@ -20,6 +19,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/murrellb/InvariantPointAttention.jl",
+    repo="github.com/MurrellGroup/InvariantPointAttention.jl",
     devbranch="main",
 )

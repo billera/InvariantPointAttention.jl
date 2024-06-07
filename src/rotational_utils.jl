@@ -54,10 +54,25 @@ Generates random translations of given size.
 get_translation(T::Type{<:Real}, dims...) = randn(T, 3, 1, dims...)
 get_translation(dims...; T::Type{<:Real}=Float32) = get_translation(T, dims...)
 
-function _batched_transpose(data::A) where {T,N,A<:AbstractArray{T,N}}
-    perm = (2,1,3:N...)
-    PermutedDimsArray{T,N,perm,perm,A}(data)
+
+function batched_mul_T1(x::AbstractArray{T1,N}, y::AbstractArray{T2,N}) where {T1,T2,N}
+    batch_size = size(x)[3:end]
+    @assert batch_size == size(y)[3:end] "batch size has to be the same for the two arrays."
+    x2 = reshape(x, size(x, 1), size(x, 2), :) |> batched_transpose
+    y2 = reshape(y, size(y, 1), size(y, 2), :)
+    z = batched_mul(x2, y2)
+    return reshape(z, size(z, 1), size(z, 2), batch_size...)
 end
+
+function batched_mul_T2(x::AbstractArray{T1,N}, y::AbstractArray{T2,N}) where {T1,T2,N}
+    batch_size = size(x)[3:end]
+    @assert batch_size == size(y)[3:end] "batch size has to be the same for the two arrays."
+    x2 = reshape(x, size(x, 1), size(x, 2), :)
+    y2 = reshape(y, size(y, 1), size(y, 2), :) |> batched_transpose
+    z = batched_mul(x2, y2)
+    return reshape(z, size(z, 1), size(z, 2), batch_size...)
+end
+
 
 """
 Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
@@ -73,7 +88,7 @@ Applies the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N 
 such that T^-1(T*x) = T^-1(Rx+t) =  R^T(Rx+t-t) = x.
 """
 function T_R3_inv(x::AbstractArray{T,N}, R::AbstractArray{T,N}, t::AbstractArray{T,N}) where {T,N}
-    return batched_mul(_batched_transpose(R), x .- t)
+    return batched_mul_T1(R, x .- t)
 end
 
 """

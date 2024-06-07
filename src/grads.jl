@@ -48,8 +48,8 @@ end
 function ChainRulesCore.rrule(::typeof(T_R3), x::AbstractArray{T,N}, R::AbstractArray{T,N}, t::AbstractArray{T,N}) where {T,N}
     function T_R3_pullback(_Δy)
         Δy = unthunk(_Δy)
-        Δx = @thunk(batched_mul(_batched_transpose(R), Δy))
-        ΔR = @thunk(batched_mul(Δy, _batched_transpose(x)))
+        Δx = @thunk(batched_mul_T1(R, Δy))
+        ΔR = @thunk(batched_mul_T2(Δy, x))
         Δt = @thunk(sum(Δy, dims=2))
         return (NoTangent(), Δx, ΔR, Δt)
     end
@@ -58,15 +58,15 @@ end
 
 function ChainRulesCore.rrule(::typeof(T_R3_inv), x::AbstractArray{T,N}, R::AbstractArray{T,N}, t::AbstractArray{T,N}) where {T,N}
     z = x .- t
-    y = batched_mul(_batched_transpose(R), z)
+    y = batched_mul_T1(R, z)
     function T_R3_inv_pullback(_Δy)
         Δy = unthunk(_Δy)
         Δx = @thunk(batched_mul(R, Δy))
-        ΔR = @thunk(batched_mul(z, _batched_transpose(Δy)))
+        ΔR = @thunk(batched_mul_T2(z, Δy))
         Δt = @thunk(-sum(Δx, dims=2)) # t is in the same position as x, but negated and broadcasted
         return (NoTangent(), Δx, ΔR, Δt)
     end
-    return T_R3_inv(x, R, t), T_R3_inv_pullback
+    return y, T_R3_inv_pullback
 end
 
 #=
@@ -194,8 +194,4 @@ function pre_softmax_aijh(qh::AbstractArray{T},kh::AbstractArray{T},Ti,qhp::Abst
     w_L = T(1f0/sqrt(3f0))
 
     w_L.*(dim_scale.*qhTkh(qh,kh) .+ bij .- w_C/2 .* gamma_h .* dropdims(diff_sum_glob(Ti,qhp,khp),dims=(1,3)))
-end
-
-function test_version()
-    println("Hello World! gradablateaij")
 end
