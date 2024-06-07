@@ -1,9 +1,7 @@
 module InvariantPointAttention
 
 using LinearAlgebra
-using StatsBase
 using Flux
-using ChainRules
 using ChainRulesCore
 
 include("rotational_utils.jl")

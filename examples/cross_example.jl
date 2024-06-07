@@ -27,7 +27,7 @@ for i in 1:1000
     loss, grads = Flux.withgradient(Flux.params(ipca)) do
         # For structure model output is T,s ; for layer output is s 
         s = ipca(T_L, S_L, T_R, S_R)
-        mean(s)
+        sum(s) / length(s)
     end 
 end
 
