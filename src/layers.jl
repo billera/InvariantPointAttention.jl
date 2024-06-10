@@ -74,7 +74,7 @@ function IPCrossA(settings::NamedTuple)
     else
         v = if settings.scaling_qk == :default
             0.1 .+ range(0, 1, N_head).^2
-        elseif settings isa AbstractVector{<:Real}
+        elseif settings.scaling_qk isa AbstractVector{<:Real}
             settings.scaling_qk
         end
         Typ.(repeat(v, outer = N_query_points))
@@ -95,10 +95,10 @@ function IPCrossA(settings::NamedTuple)
 end
 
 
+# We could skip making this struct and just have it be a cross IPA struct. 
 """
 Strictly Self-IPA initialization
 """
-# We could skip making this struct and just have it be a cross IPA struct. 
 struct IPA
     settings::NamedTuple
     layers::NamedTuple
@@ -111,9 +111,6 @@ function IPA(settings::NamedTuple)
     return IPA(crossL.settings, crossL.layers)
 end
 
-"""
-Self-IPA can be run from both IPA and cross IPA, allowing for flexibility. Simply calls cross IPA on itself. 
-"""
 function (ipa::Union{IPA, IPCrossA})(T::Tuple{AbstractArray,AbstractArray}, S::AbstractArray; Z = nothing, mask = 0)
     return ipa(T, S, T, S; zij = Z, mask = mask)
 end
@@ -124,7 +121,7 @@ function (ipa::Union{IPCrossA, IPA})(
     TiL::Tuple{AbstractArray, AbstractArray}, siL::AbstractArray,
     TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray;
     zij = nothing, mask = 0, customgrad = true,
-)    
+)
     if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR
         @warn "Forcing customgrad to false"
         customgrad = false 
@@ -146,12 +143,12 @@ function (ipa::Union{IPCrossA, IPA})(
     
     # Get relevant parameters from our ipa struct.
     l = ipa.layers
-    dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
+    dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings
     if haskey(ipa.settings, :use_softmax1) #For compat
         use_softmax1 = ipa.settings.use_softmax1
     else
         use_softmax1 = false
-    end
+    end    
     
     rot_TiL, translate_TiL = TiL
     rot_TiR, translate_TiR = TiR

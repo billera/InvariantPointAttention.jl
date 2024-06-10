@@ -5,13 +5,13 @@ DocMeta.setdocmeta!(InvariantPointAttention, :DocTestSetup, :(using InvariantPoi
 
 makedocs(;
     modules=[InvariantPointAttention],
-    authors="Ben Murrell <murrellb@gmail.com> and contributors",
+    authors="Ben Murrell <benjamin.murrell@ki.se> and contributors",
     sitename="InvariantPointAttention.jl",
     format=Documenter.HTML(;
-        prettyurls=get(ENV, "CI", "false") == "true",
-        canonical="https://murrellb.github.io/InvariantPointAttention.jl",
+        canonical="https://murrellgroup.github.io/InvariantPointAttention.jl",
         edit_link="main",
         assets=String[],
+        prettyurls=get(ENV, "CI", "false") == "true",
     ),
     pages=[
         "Home" => "index.md",
