@@ -1,9 +1,4 @@
-using LinearAlgebra
-using StatsBase
-using Flux
-
-include("../src/layers.jl")
-include("../src/rotational_utils.jl")
+using InvariantPointAttention
 
 len_L, len_R, dim, batch = 5, 5, 4, 10
 T_L = (get_rotation(len_L, batch), randn(Float32, 3, len_L, batch)) 

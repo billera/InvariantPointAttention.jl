@@ -1,5 +1,3 @@
-using Pkg; Pkg.activate(".")
-using Revise
 using InvariantPointAttention
 using InvariantPointAttention: get_rotation, get_translation, T_T, sumdrop
 

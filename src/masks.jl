@@ -52,7 +52,7 @@ function virtual_residues(
     Nr = size(S, 2)
     start = 1
     if rand_start 
-        start = sample(1:step)
+        start = rand(1:step)
     end
     vr = start:step:Nr
     S_virt = S[:,vr,:]

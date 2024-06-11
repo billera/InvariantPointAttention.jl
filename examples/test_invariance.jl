@@ -1,9 +1,5 @@
-using LinearAlgebra
-using StatsBase
-using Flux
-
-include("../src/layers.jl")
-include("../src/rotational_utils.jl")
+using InvariantPointAttention
+using InvariantPointAttention: get_rotation, get_translation, T_T
 
 batch_size = 32
 frames = 64

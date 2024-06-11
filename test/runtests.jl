@@ -9,82 +9,6 @@ import Flux
 using ChainRulesTestUtils
 
 @testset "InvariantPointAttention.jl" begin
-    # Write your tests here.
-    @testset "Softmax1" begin
-        #Check if softmax1 is consistent with softmax, when adding an additional zero logit
-        x = randn(4,3)
-        xaug = hcat(x, zeros(4,1))
-        @test softmax1(x, dims = 2) ≈ Flux.softmax(xaug, dims = 2)[:,1:end-1]
-    end
-
-    @testset "softmax1 rrule" begin
-        x = randn(2,3,4)
-
-        foreach(i -> test_rrule(softmax1, x; fkwargs=(; dims=i)), 1:3)
-    end  
-
-    @testset "T_R3 rrule" begin 
-        x = randn(Float64, 3, 2, 1, 2)
-        R = get_rotation(Float64, 1, 2)
-        t = get_translation(Float64, 1, 2)
-        test_rrule(T_R3, x, R, t)
-    end
-
-    @testset "T_R3_inv rrule" begin 
-        x = randn(Float64, 3, 2, 1, 2)
-        R = get_rotation(Float64, 1, 2) 
-        t = get_translation(Float64, 1, 2)
-        test_rrule(T_R3_inv, x, R, t)
-    end
-
-    @testset "sumabs2 rrule" begin
-        x = rand(2,3,4)
-        foreach(i -> test_rrule(sumabs2, x; fkwargs=(; dims=i)), 1:3)
-    end
-
-    @testset "L2norm rrule" begin 
-        x = randn(2,3,4,5)
-        foreach(i -> test_rrule(L2norm, x; fkwargs=(; dims=i)), 1:3)
-    end
-
-    @testset "pair_diff custom grad" begin 
-        x = randn(1,4,2)
-        y = randn(1,3,2)
-        test_rrule(pair_diff, x, y; fkwargs=(; dims=2))
-    end
-
-    @testset "ipa_customgrad" begin
-        batch_size = 3
-        framesL = 10
-        framesR = 10
-        dim = 10
-        
-        siL = randn(Float32, dim, framesL, batch_size) 
-        siR = siL
-        # Use CLOPS.jl shape notation
-        TiL = (get_rotation(Float32, framesL, batch_size), get_translation(Float32, framesL, batch_size)) 
-        TiR = TiL 
-        zij = randn(Float32, 16, framesR, framesL, batch_size) 
-
-        ipa = IPCrossA(IPA_settings(dim; use_softmax1 = true, c_z = 16, Typ = Float32))  
-        # Batching on mask
-        mask = right_to_left_mask(framesL)[:, :, ones(Int, batch_size)]
-        ps = Flux.params(ipa)
-        
-        lz,gs = Flux.withgradient(ps) do 
-            sum(ipa(TiL, siL, TiR, siR; zij, mask, customgrad = true))
-        end
-        
-        lz2, zygotegs = Flux.withgradient(ps) do 
-            sum(ipa(TiL, siL, TiR, siR; zij, mask, customgrad = false))
-        end
-        
-        for (gs, zygotegs) in zip(keys(gs),keys(zygotegs))
-            @test maximum(abs.(gs .- zygotegs)) < 2f-5
-        end
-        #@show lz, lz2
-        @test abs.(lz - lz2) < 1f-5
-    end
 
     @testset "IPAsoftmax_invariance" begin
         batch_size = 3
@@ -232,4 +156,81 @@ using ChainRulesTestUtils
         end
         @test cat(siRs..., dims = 2) ≈ ipa(TiL, siL, TiR, siR; zij, mask = right_to_left_mask(10))
     end
+
+    @testset "Softmax1" begin
+        #Check if softmax1 is consistent with softmax, when adding an additional zero logit
+        x = randn(4,3)
+        xaug = hcat(x, zeros(4,1))
+        @test softmax1(x, dims = 2) ≈ Flux.softmax(xaug, dims = 2)[:,1:end-1]
+    end
+
+    @testset "softmax1 rrule" begin
+        x = randn(2,3,4)
+
+        foreach(i -> test_rrule(softmax1, x; fkwargs=(; dims=i)), 1:3)
+    end  
+
+    @testset "T_R3 rrule" begin 
+        x = randn(Float64, 3, 2, 1, 2)
+        R = get_rotation(Float64, 1, 2)
+        t = get_translation(Float64, 1, 2)
+        test_rrule(T_R3, x, R, t)
+    end
+
+    @testset "T_R3_inv rrule" begin 
+        x = randn(Float64, 3, 2, 1, 2)
+        R = get_rotation(Float64, 1, 2) 
+        t = get_translation(Float64, 1, 2)
+        test_rrule(T_R3_inv, x, R, t)
+    end
+
+    @testset "sumabs2 rrule" begin
+        x = rand(2,3,4)
+        foreach(i -> test_rrule(sumabs2, x; fkwargs=(; dims=i)), 1:3)
+    end
+
+    @testset "L2norm rrule" begin 
+        x = randn(2,3,4,5)
+        foreach(i -> test_rrule(L2norm, x; fkwargs=(; dims=i)), 1:3)
+    end
+
+    @testset "pair_diff rrule" begin 
+        x = randn(1,4,2)
+        y = randn(1,3,2)
+        test_rrule(pair_diff, x, y; fkwargs=(; dims=2))
+    end
+
+    @testset "ipa_customgrad" begin
+        batch_size = 3
+        framesL = 10
+        framesR = 10
+        dim = 10
+        
+        siL = randn(Float32, dim, framesL, batch_size) 
+        siR = siL
+        # Use CLOPS.jl shape notation
+        TiL = (get_rotation(Float32, framesL, batch_size), get_translation(Float32, framesL, batch_size)) 
+        TiR = TiL 
+        zij = randn(Float32, 16, framesR, framesL, batch_size) 
+
+        ipa = IPCrossA(IPA_settings(dim; use_softmax1 = true, c_z = 16, Typ = Float32))  
+        # Batching on mask
+        mask = right_to_left_mask(framesL)[:, :, ones(Int, batch_size)]
+        ps = Flux.params(ipa)
+        
+        lz,gs = Flux.withgradient(ps) do 
+            sum(ipa(TiL, siL, TiR, siR; zij, mask, customgrad = true))
+        end
+        
+        lz2, zygotegs = Flux.withgradient(ps) do 
+            sum(ipa(TiL, siL, TiR, siR; zij, mask, customgrad = false))
+        end
+        
+        for (gs, zygotegs) in zip(keys(gs),keys(zygotegs))
+            @test maximum(abs.(gs .- zygotegs)) < 2f-5
+        end
+        #@show lz, lz2
+        @test abs.(lz - lz2) < 1f-5
+    end
+
 end
