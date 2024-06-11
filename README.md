@@ -5,4 +5,4 @@
 [![Build Status](https://github.com/MurrellGroup/InvariantPointAttention.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/MurrellGroup/InvariantPointAttention.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/MurrellGroup/InvariantPointAttention.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/MurrellGroup/InvariantPointAttention.jl)
 
-Invariant Point Attention (IPA) is defined in the [supplementary information](https://www.nature.com/articles/s41586-021-03819-2#Sec20) of the [AlphaFold 2 paper](https://www.nature.com/articles/s41586-021-03819-2).
+This is a Julia implementation of Invariant Point Attention (IPA), which is is defined in the [supplementary information](https://www.nature.com/articles/s41586-021-03819-2#Sec20) of the [AlphaFold 2 paper](https://www.nature.com/articles/s41586-021-03819-2).
