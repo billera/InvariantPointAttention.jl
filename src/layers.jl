@@ -399,11 +399,10 @@ function IPCrossAStructureModuleLayer(settings::NamedTuple; dropout_p = 0.1, af 
     return IPCrossAStructureModuleLayer(settings, layers)
 end
 
+# We could skip making this struct and just have it be a cross IPA struct. 
 """
 Self IPA Partial Structure Module initialization - single layer - adapted from AF2. 
 """
-
-# We could skip making this struct and just have it be a cross IPA struct. 
 struct IPAStructureModuleLayer
     settings::NamedTuple
     layers::NamedTuple
@@ -418,9 +417,6 @@ function (structuremodulelayer::Union{IPAStructureModuleLayer, IPCrossAStructure
     return structuremodulelayer(T, S, T, S; zij = zij, mask = mask)
 end
 
-"""
-Cross IPA Partial Structure Module - single layer - adapted from AF2. From left to right. 
-"""
 function (structuremodulelayer::Union{IPCrossAStructureModuleLayer, IPAStructureModuleLayer})(T_L, S_L, T_R, S_R; zij = nothing, mask = 0)
     settings = structuremodulelayer.settings
     if settings.c_z > 0 && zij === nothing

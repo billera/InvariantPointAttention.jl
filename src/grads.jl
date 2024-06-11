@@ -69,6 +69,53 @@ function ChainRulesCore.rrule(::typeof(T_R3_inv), x::AbstractArray{T,N}, R::Abst
     return y, T_R3_inv_pullback
 end
 
+"""
+    softmax1(x, dims = 1)
+
+Behaves like softmax, but as though there was an additional logit of zero along dims (which is excluded from the output). So the values will sum to a value between zero and 1.
+
+See https://www.evanmiller.org/attention-is-off-by-one.html
+"""
+function softmax1(x::AbstractArray{T}; dims = 1) where {T}
+    _zero = T(0)
+    max_ = max.(fast_maximum2(x; dims), _zero)
+    @fastmath out = exp.(x .- max_)
+    tmp = sum(out, dims = dims)
+    out ./ (tmp + exp.(-max_))
+end
+
+# taken from NNlib
+fast_maximum2(x::AbstractArray{T}; dims) where {T} = @fastmath reduce(max, x; dims, init = float(T)(-Inf))
+
+function ∇softmax1_data(dy::AbstractArray{T}, y::AbstractArray{S}; dims = 1) where {T,S}
+    dx = if NNlib.within_gradient(y)
+        tmp = dy .* y
+        tmp .- y .* sum(tmp; dims)
+    else
+        # This path is faster, only safe for 1st derivatives though.
+        # Was previously `∇softmax!(dx, dy, x, y; dims)` to allow CUDA overloads,
+        # but that was slow: https://github.com/FluxML/NNlibCUDA.jl/issues/30
+        out = similar(y, promote_type(T,S))  # sure to be mutable
+        out .= dy .* y
+        out .= out .- y .* sum(out; dims)
+    end
+end
+
+function ChainRulesCore.rrule(::typeof(softmax1), x; dims = 1)
+    y = softmax1(x; dims)
+    softmax_pullback(dy) = (NoTangent(), ∇softmax1_data(unthunk(dy), y; dims))
+    return y, softmax_pullback
+end
+
+
+function pre_softmax_aijh(qh::AbstractArray{T},kh::AbstractArray{T},Ti,qhp::AbstractArray{T},khp::AbstractArray{T}, bij::AbstractArray{T}, gamma_h::AbstractArray{T}) where T
+    w_C = T(sqrt(2f0/(9f0*size(qhp,3))))
+    dim_scale = T(1f0/sqrt(size(qh,1)))
+    w_L = T(1f0/sqrt(3f0))
+
+    w_L.*(dim_scale.*qhTkh(qh,kh) .+ bij .- w_C/2 .* gamma_h .* dropdims(diff_sum_glob(Ti,qhp,khp),dims=(1,3)))
+end
+
 #=
 function diff_sum_glob(T, q, k)
     bs = size(q) 
@@ -152,46 +199,3 @@ function ChainRulesCore.rrule(::typeof(qhTkh), q, k)
     return qhTkh, qhTkh_pullback
 end
 =#
-"""
-softmax1(x, dims = 1)
-
-Behaves like softmax, but as though there was an additional logit of zero along dims (which is excluded from the output). So the values will sum to a value between zero and 1.
-"""
-function softmax1(x::AbstractArray{T}; dims = 1) where {T}
-    _zero = T(0)
-    max_ = max.(fast_maximum2(x; dims), _zero)
-    @fastmath out = exp.(x .- max_)
-    tmp = sum(out, dims = dims)
-    out ./ (tmp + exp.(-max_))
-end
-# Pirated/adapted from NNlib
-fast_maximum2(x::AbstractArray{T}; dims) where {T} = @fastmath reduce(max, x; dims, init = float(T)(-Inf))
-
-function ∇softmax1_data(dy::AbstractArray{T}, y::AbstractArray{S}; dims = 1) where {T,S}
-    dx = if NNlib.within_gradient(y)
-        tmp = dy .* y
-        tmp .- y .* sum(tmp; dims)
-    else
-        # This path is faster, only safe for 1st derivatives though.
-        # Was previously `∇softmax!(dx, dy, x, y; dims)` to allow CUDA overloads,
-        # but that was slow: https://github.com/FluxML/NNlibCUDA.jl/issues/30
-        out = similar(y, promote_type(T,S))  # sure to be mutable
-        out .= dy .* y
-        out .= out .- y .* sum(out; dims)
-    end
-end
-
-function ChainRulesCore.rrule(::typeof(softmax1), x; dims = 1)
-    y = softmax1(x; dims)
-    softmax_pullback(dy) = (NoTangent(), ∇softmax1_data(unthunk(dy), y; dims))
-    return y, softmax_pullback
-end
-
-
-function pre_softmax_aijh(qh::AbstractArray{T},kh::AbstractArray{T},Ti,qhp::AbstractArray{T},khp::AbstractArray{T}, bij::AbstractArray{T}, gamma_h::AbstractArray{T}) where T
-    w_C = T(sqrt(2f0/(9f0*size(qhp,3))))
-    dim_scale = T(1f0/sqrt(size(qh,1)))
-    w_L = T(1f0/sqrt(3f0))
-
-    w_L.*(dim_scale.*qhTkh(qh,kh) .+ bij .- w_C/2 .* gamma_h .* dropdims(diff_sum_glob(Ti,qhp,khp),dims=(1,3)))
-end

@@ -100,8 +100,8 @@ using ChainRulesTestUtils
 
         # Get 1 global SE(3) transformation for each batch.
         T_glob = (get_rotation(batch_size), get_translation(batch_size))
-        T_GlobL = (stack([T_glob[1] for i in 1:framesL],dims = 3), stack([T_glob[2] for i in 1:framesL], dims = 3))
-        T_GlobR = (stack([T_glob[1] for i in 1:framesR],dims = 3), stack([T_glob[2] for i in 1:framesR], dims = 3))
+        T_GlobL = (stack([T_glob[1] for i in 1:framesL],dims = 3), stack([T_glob[2] for i in 1:framesL], dims=3))
+        T_GlobR = (stack([T_glob[1] for i in 1:framesR],dims = 3), stack([T_glob[2] for i in 1:framesR], dims=3))
         
         T_newL = InvariantPointAttention.T_T(T_GlobL,T_locL)
         T_newR = InvariantPointAttention.T_T(T_GlobR,T_locR)

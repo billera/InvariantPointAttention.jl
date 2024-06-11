@@ -1,15 +1,11 @@
-# from AF2 supplementary: Algorithm 23 Backbone update
-"""
-Takes a 3xN matrix of imaginary quaternion components, `bcd`, sets the real part to `a`, and normalizes to unit quaternions.
-"""
-function bcds2quats(bcd::AbstractMatrix{T}, a::T=T(1)) where T <: Real
+#= from AF2 supplementary: Algorithm 23 Backbone update
+Takes a 3xN matrix of imaginary quaternion components, `bcd`, sets the real part to `a`, and normalizes to unit quaternions. =#
+function bcds2quats(bcd::AbstractMatrix{T}, a::T=T(1)) where T<:Real
     norms = sqrt.(a .+ sum(abs2, bcd, dims=1))
     return vcat(a ./ norms, bcd ./ norms)
 end
 
-"""
-Takes a 4xN matrix of unit quaternions and returns a 3x3xN array of rotation matrices.
-"""
+# Takes a 4xN matrix of unit quaternions and returns a 3x3xN array of rotation matrices.
 function rotmatrix_from_quat(q::AbstractMatrix{<:Real})
     sx = 2q[1, :] .* q[2, :]
     sy = 2q[1, :] .* q[3, :]
@@ -73,12 +69,9 @@ function batched_mul_T2(x::AbstractArray{T1,N}, y::AbstractArray{T2,N}) where {T
     return reshape(z, size(z, 1), size(z, 2), batch_size...)
 end
 
-
-"""
-Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
+#= Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
 to N batches of m points in R3, i.e., mat ∈ R^(3 x m x N) ↦ T(mat) ∈ R^(3 x m x N).
-Note here that rotations here are represented in matrix form. 
-"""
+Note here that rotations here are represented in matrix form. =#
 function T_R3(x::AbstractArray{T}, R::AbstractArray{T}, t::AbstractArray{T}) where T
     x′ = reshape(x, 3, size(x, 2), :)
     R′ = reshape(R, 3, 3, :)
@@ -88,10 +81,8 @@ function T_R3(x::AbstractArray{T}, R::AbstractArray{T}, t::AbstractArray{T}) whe
     return y
 end
 
-"""
-Applies the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N batches of m points in R3,
-such that T^-1(T*x) = T^-1(Rx+t) =  R^T(Rx+t-t) = x.
-"""
+#= Applies the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N batches of m points in R3,
+such that T^-1(T*x) = T^-1(Rx+t) =  R^T(Rx+t-t) = x. =#
 function T_R3_inv(y::AbstractArray{T}, R::AbstractArray{T}, t::AbstractArray{T}) where T
     y′ = reshape(y, 3, size(y, 2), :)
     R′ = reshape(R, 3, 3, :)
@@ -101,9 +92,7 @@ function T_R3_inv(y::AbstractArray{T}, R::AbstractArray{T}, t::AbstractArray{T})
     return x
 end
 
-"""
-Returns the composition of two SE(3) transformations T_1 and T_2. If T1 = (R1,t1), and T2 = (R2,t2) then T1*T2 = (R1*R2, R1*t2 + t1).
-"""
+# Returns the composition of two SE(3) transformations T_1 and T_2. If T1 = (R1,t1), and T2 = (R2,t2) then T1*T2 = (R1*R2, R1*t2 + t1).
 function T_T(T_1, T_2)
     R1, t1 = T_1 
     R2, t2 = T_2
@@ -112,9 +101,7 @@ function T_T(T_1, T_2)
     return (new_rot,new_trans)
 end
 
-"""
-Takes a 6-dim vec and maps to a rotation matrix and translation vector, which is then applied to the input frames.
-"""
+# Takes a 6-dim vec and maps to a rotation matrix and translation vector, which is then applied to the input frames.
 function update_frame(Ti, arr)
     bcds = reshape(arr[:,1,:,:],3,:)
     rotmat = rotmatrix_from_quat(bcds2quats(bcds))  
@@ -130,9 +117,7 @@ unzip(a) = map(x->getfield.(a, x), fieldnames(eltype(a)))
 
 centroid(coords::AbstractMatrix) = vec(sum(coords; dims=2)) / size(coords, 2)
 
-"""
-Get frame from residue
-"""
+# Get rotation matrix and translation from residue
 function calculate_residue_rotation_and_translation(residue_xyz::AbstractMatrix)
     # Returns the rotation matrix and the translation of a gien residue. 
     N = residue_xyz[:, 1]
@@ -152,30 +137,29 @@ function calculate_residue_rotation_and_translation(residue_xyz::AbstractMatrix)
 end
 
 """
-Get the assosciated SE(3) frame for all residues in a prot
+    get_T(coords::Array{<:Real, 3})
+Get the assosciated SE(3) frame for all residues in a protein backbone represented as a 3x3xL array of coordinates.
 """
-function get_T(protxyz::Array{<:Real, 3}) 
-    ti = stack.(unzip([calculate_residue_rotation_and_translation(protxyz[:,:,i]) for i in axes(protxyz,3)]))
-    return (ti[1],reshape(ti[2],3,1,:))
+function get_T(coords::Array{<:Real, 3})
+    Ti = stack.(unzip([calculate_residue_rotation_and_translation(coords[:,:,i]) for i in axes(coords,3)]))
+    return (Ti[1],reshape(Ti[2],3,1,:))
 end
 
 """
-Get the assosciated SE(3) frames for all residues in a batch of prots 
+Get the associated SE(3) frames for all residues in a batch of proteins
 """
-function get_T_batch(protxyz::Array{<:Real, 4})
-    rots = zeros(3,3,size(protxyz)[3:4]...)
-    trans = zeros(3,1,size(protxyz)[3:4]...)
-    for j in axes(protxyz,4)
-        Tij = get_T(protxyz[:,:,:,j])
+function get_T_batch(coords::Array{<:Real, 4})
+    rots = zeros(3,3,size(coords)[3:4]...)
+    trans = zeros(3,1,size(coords)[3:4]...)
+    for j in axes(coords,4)
+        Tij = get_T(coords[:,:,:,j])
         rots[:,:,:,j] = Tij[1]
         trans[:,:,:,j] = Tij[2]
     end
     return (rots, trans)
 end
 
-"""
-Index into a T up to index i. 
-"""
+# Index into a T up to index i.
 function T_till(T,i)
     Tr, Tt = T[1][:,:,1:i,:], T[2][:,:,1:i,:]
     return Tr, Tt
