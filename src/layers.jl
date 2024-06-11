@@ -22,6 +22,18 @@ function (backboneupdate::BackboneUpdate)(Ti, si)
 end
 
 """
+    IPA_settings(
+        dims;
+        c = 16,
+        N_head = 12,
+        N_query_points = 4,
+        N_point_values = 8,
+        c_z = 0,
+        Typ = Float32,
+        use_softmax1 = false,
+        scaling_qk = :default,
+    )
+
 Returns a tuple of the IPA settings, with defaults for everything except dims. This can be passed to the IPA and IPCrossAStructureModuleLayer.
 """
 IPA_settings(
@@ -49,7 +61,11 @@ IPA_settings(
 
 
 """
+    IPCrossA(settings)
+
 Invariant Point Cross Attention (IPCrossA). Information flows from L (Keys, Values) to R (Queries).
+
+Get `settings` with [`IPA_settings`](@ref)
 """
 struct IPCrossA
     settings::NamedTuple
@@ -149,7 +165,7 @@ function (ipa::Union{IPCrossA, IPA})(
     else
         use_softmax1 = false
     end    
-    
+
     rot_TiL, translate_TiL = TiL
     rot_TiR, translate_TiR = TiR
     

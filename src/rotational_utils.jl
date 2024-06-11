@@ -79,16 +79,26 @@ Applies the SE3 transformations T = (rot,trans) ∈ SE(3)^N
 to N batches of m points in R3, i.e., mat ∈ R^(3 x m x N) ↦ T(mat) ∈ R^(3 x m x N).
 Note here that rotations here are represented in matrix form. 
 """
-function T_R3(x::AbstractArray{T,N}, R::AbstractArray{T,N}, t::AbstractArray{T,N}) where {T,N}
-    return batched_mul(R, x) .+ t
+function T_R3(x::AbstractArray{T}, R::AbstractArray{T}, t::AbstractArray{T}) where T
+    x′ = reshape(x, 3, size(x, 2), :)
+    R′ = reshape(R, 3, 3, :)
+    t′ = reshape(t, 3, 1, :)
+    y′ = batched_mul(R′, x′) .+ t′
+    y = reshape(y′, size(x))
+    return y
 end
 
-""" 
+"""
 Applies the group inverse of the SE3 transformations T = (R,t) ∈ SE(3)^N to N batches of m points in R3,
 such that T^-1(T*x) = T^-1(Rx+t) =  R^T(Rx+t-t) = x.
 """
-function T_R3_inv(x::AbstractArray{T,N}, R::AbstractArray{T,N}, t::AbstractArray{T,N}) where {T,N}
-    return batched_mul_T1(R, x .- t)
+function T_R3_inv(y::AbstractArray{T}, R::AbstractArray{T}, t::AbstractArray{T}) where T
+    y′ = reshape(y, 3, size(y, 2), :)
+    R′ = reshape(R, 3, 3, :)
+    t′ = reshape(t, 3, 1, :)
+    x′ = batched_mul(batched_transpose(R′), y′ .- t′)
+    x = reshape(x′, size(y))
+    return x
 end
 
 """
