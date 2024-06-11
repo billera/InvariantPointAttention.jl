@@ -72,4 +72,4 @@ jobs:
           using Documenter: DocMeta, doctest
           using InvariantPointAttention
           DocMeta.setdocmeta!(InvariantPointAttention, :DocTestSetup, :(using InvariantPointAttention); recursive=true)
-          doctest(InvariantPointAttention)'
+          doctest(InvariantPointAttention)

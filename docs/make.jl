@@ -7,7 +7,6 @@ makedocs(;
     modules=[InvariantPointAttention],
     authors="Ben Murrell <benjamin.murrell@ki.se> and contributors",
     sitename="InvariantPointAttention.jl",
-    doctest=false,
     format=Documenter.HTML(;
         canonical="https://murrellgroup.github.io/InvariantPointAttention.jl",
         edit_link="main",
