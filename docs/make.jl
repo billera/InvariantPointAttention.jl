@@ -20,6 +20,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/MurrellGroup/InvariantPointAttention.jl",
+    repo="github.com/MurrellGroup/InvariantPointAttention.jl.git",
     devbranch="main",
 )
