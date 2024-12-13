@@ -64,32 +64,22 @@ function unrope(rope, x)
     )
 end
 
-struct FixedRoPE
-    freqs::AbstractArray
-    cos::AbstractArray
-    sin::AbstractArray
+struct FixedRoPE{T<:Real}
+    angle::T  # One angle per dimension pair
 end
 
-Flux.@layer FixedRoPE trainable=(:freqs)
-
-function FixedRoPE(dim::Int; theta::T=10000f0) where T
-    # Create a single fixed rotation
-    freqs = 1f0 ./ (theta .^ (T.(0:2:dim-1)[1:dim÷2] ./ dim))
-    # Only generate for a single position
-    freqs_complex = cis.(freqs)
-    cos = real(freqs_complex)  # (head_dim/2)
-    sin = imag(freqs_complex)
-    # Reshape to (head_dim/2, 1, 1, 1) for broadcasting
-    cos = reshape(cos, (dim÷2, 1, 1, 1))
-    sin = reshape(sin, (dim÷2, 1, 1, 1))
-    return FixedRoPE(freqs, cos, sin)
+Flux.@layer FixedRoPE trainable=:angle
+function FixedRoPE(dim::Int; T = Float32)
+    angle = T(π/4)
+    return FixedRoPE(angle)
 end
 
-# Apply fixed rotation to queries only
 function (rope::FixedRoPE)(x)
     head_dim = size(x, 1)
     x1 = x[1:head_dim÷2, :, :, :]
     x2 = x[head_dim÷2+1:end, :, :, :]
+    cos = reshape(cos.(rope.angle), (dim÷2, 1, 1, 1))
+    sin = reshape(sin.(rope.angle), (dim÷2, 1, 1, 1))
     rotx = vcat(
         x1 .* rope.cos .- x2 .* rope.sin,
         x2 .* rope.cos .+ x1 .* rope.sin
