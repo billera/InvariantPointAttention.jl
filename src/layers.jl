@@ -57,7 +57,6 @@ IPA_settings(
     pairwise = c_z > 0,
     use_softmax1,
     scaling_qk,
-    rope,
 )
 
 
