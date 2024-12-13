@@ -57,6 +57,7 @@ IPA_settings(
     pairwise = c_z > 0,
     use_softmax1,
     scaling_qk,
+    rope,
 )
 
 
@@ -74,7 +75,7 @@ end
 
 Flux.@layer IPCrossA # provides parameter collection, gpu movement and more
 
-function IPCrossA(settings::NamedTuple)
+function IPCrossA(settings::NamedTuple; rope_kwargs...)
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = settings 
     # Needs a slightly unusual initialization - hat-tip: Kenta
     init = Flux.kaiming_uniform(gain = 1.0f0)
@@ -132,11 +133,14 @@ function (ipa::Union{IPA, IPCrossA})(T::Tuple{AbstractArray,AbstractArray}, S::A
 end
 
 #Attention props from L (Keys, Values) to R (Queries).
-#Because IPA uses Q'K, our pairwise matrices are R-by-L
+#Because IPA uses Q'K, our pairwise matrices are R-by-L 
+#Rope is an IPARoPE, applying the usual RoPE to queries and keys pertaining to the same chains and a fixed rotation to queries and keys pertaining to different chains. 
+#Chain diffs defaults to 1, meaning everything is in the same chain. Otherwise, a pairwise matrix where 1 denotes the same chain, 0 denotes different chains should be used. 
 function (ipa::Union{IPCrossA, IPA})(
     TiL::Tuple{AbstractArray, AbstractArray}, siL::AbstractArray,
     TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray;
-    zij = nothing, mask = 0, customgrad = true,
+    zij = nothing, mask = 0, customgrad = true, 
+    rope::Union{IPARoPE, Nothing} = nothing, chain_diffs = 1,
 )
     if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR
         @warn "Forcing customgrad to false"
@@ -179,6 +183,13 @@ function (ipa::Union{IPCrossA, IPA})(
 
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
+
+    if !isnothing(rope)
+        qhTkh = dotproducts(rope, qh, kh; chain_diffs)
+    else
+        qhTkh = dotproducts(qh, kh)
+    end 
+
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
 
     if isnothing(l.scale_h)
@@ -194,14 +205,9 @@ function (ipa::Union{IPCrossA, IPA})(
     # This should be Q'K, following IPA, which isn't like the regular QK'
     # Dot products between queries and keys.
                         #FramesR, c, N_head, Batch
-    qhT = permutedims(qh, (3, 1, 2, 4))
-                         #c, FramesL, N_head, Batch
-    kh = permutedims(kh, (1, 3, 2, 4))
-    qhTkh = permutedims(#FramesR, #FramesL, N_head, Batch
-                        batched_mul(qhT,kh)
-                        #N_head, FramesR, FramesL, Batch when we use (3,1,2,4)
-                            ,(3,1,2,4))
+
     
+
     # Applying our transformations to the queries, keys, and values to put them in the global frame.
     Tqhp = reshape(T_R3(qhp, rot_TiR,translate_TiR),3,N_head,N_query_points,N_frames_R,:) 
     Tkhp = reshape(T_R3(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)

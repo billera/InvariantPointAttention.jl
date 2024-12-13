@@ -6,11 +6,13 @@ using ChainRulesCore
 
 include("rotational_utils.jl")
 include("grads.jl")
+include("rope.jl")
 include("layers.jl")
 include("masks.jl")
 
 export IPA_settings
 export IPA, IPCrossA
+export IPARoPE
 export IPAStructureModuleLayer, IPCrossAStructureModuleLayer
 export BackboneUpdate
 export right_to_left_mask
