@@ -81,8 +81,8 @@ function (rope::FixedRoPE)(x)
     cos = reshape(cos.(rope.angle), (dim÷2, 1, 1, 1))
     sin = reshape(sin.(rope.angle), (dim÷2, 1, 1, 1))
     rotx = vcat(
-        x1 .* rope.cos .- x2 .* rope.sin,
-        x2 .* rope.cos .+ x1 .* rope.sin
+        x1 .* cos .- x2 .* sin,
+        x2 .* cos .+ x1 .* sin
     )
     return rotx
 end
