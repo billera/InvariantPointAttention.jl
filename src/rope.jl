@@ -35,11 +35,11 @@ function RoPE(
     freqs = 1f0 ./ (theta .^ (T.(0:2:dim-1)[1:dim÷2] ./ dim))
     use_scaled && apply_scaling!(freqs; scale_factor)
     freqs_complex = cis.(T.(start_pos:end_pos-1) * freqs')
-    cos = permutedims(real(freqs_complex), (2, 1))  # (head_dim/2, seq_len)
-    sin = permutedims(imag(freqs_complex), (2, 1))
-    cos = reshape(cos, (dim÷2, end_pos - start_pos, 1))
-    sin = reshape(sin, (dim÷2, end_pos - start_pos, 1))
-    return RoPE(cos, sin)
+    c = permutedims(real(freqs_complex), (2, 1))  # (head_dim/2, seq_len)
+    s = permutedims(imag(freqs_complex), (2, 1))
+    c = reshape(c, (dim÷2, end_pos - start_pos, 1))
+    s = reshape(s, (dim÷2, end_pos - start_pos, 1))
+    return RoPE(c, s)
 end
 # Note about Huggingface weights and rotary embeddings:
 # https://discuss.huggingface.co/t/is-llama-rotary-embedding-implementation-correct/44509
@@ -67,9 +67,9 @@ end
 struct FixedRoPE{T<:Real}
     angle::T  # One angle per dimension pair
 end
-
 Flux.@layer FixedRoPE trainable=:angle
-function FixedRoPE(dim::Int; T = Float32)
+
+function FixedRoPE(dim::Int; theta = T(π/4), T = Float32)
     angle = T(π/4)
     return FixedRoPE(angle)
 end
@@ -78,11 +78,11 @@ function (rope::FixedRoPE)(x)
     head_dim = size(x, 1)
     x1 = x[1:head_dim÷2, :, :, :]
     x2 = x[head_dim÷2+1:end, :, :, :]
-    cos = reshape(cos.(rope.angle), (dim÷2, 1, 1, 1))
-    sin = reshape(sin.(rope.angle), (dim÷2, 1, 1, 1))
+    c = cos.(rope.angle)
+    s = sin.(rope.angle)
     rotx = vcat(
-        x1 .* cos .- x2 .* sin,
-        x2 .* cos .+ x1 .* sin
+        x1 .* c .- x2 .* s,
+        x2 .* c .+ x1 .* s
     )
     return rotx
 end
@@ -97,7 +97,7 @@ function IPARoPE(dim::Int, end_pos::Int;
     theta::T=10000f0, use_scaled=true, scale_factor=8, start_pos=0) where T
     return IPARoPE(
         RoPE(dim, end_pos; theta, use_scaled, scale_factor, start_pos),
-        FixedRoPE(dim; theta)
+        FixedRoPE(theta)
     )   
 end
 
@@ -117,20 +117,21 @@ function RoPEdotproducts(iparope::IPARoPE, q, k; chain_diffs = nothing)
 
     chain_diffs is either nothing or a array of 0's and 1's describing the ij-pair as pertaining to the same chain if the entry at ij is 1, else 0. 
 """
-function dotproducts(iparope::IPARoPE, qh::AbstractArray{T, 4}, kh::AbstractArray{T, 4}; chain_diffs = nothing) where T<: Real
+function dotproducts(iparope::IPARoPE, qh::AbstractArray{T, 4}, kh::AbstractArray{T, 4}; chain_diffs = 1) where T<: Real
     # O(N) permutedims, shouldn't be too bad. 
     qropshape = permutedims(qh, (1,3,2,4))
     kropshape = permutedims(kh, (1,3,2,4))
     rotq, rotk = permutedims(iparope.rope(qropshape), (1,3,2,4)), permutedims(iparope.rope(kropshape), (1,3,2,4))
     rotqTrotk = dotproducts(rotq, rotk)
     # when things are from different chain, we rotate only the queries by a fixed amount
-    if !isnothing(chain_diffs)
+    if chain_diffs != 1
+        #return qropshape 
         rotq2 = permutedims(iparope.fixed_rope(qropshape), (1,3,2,4))
         rotq2Trotk2 = dotproducts(rotq2, kh)
         # unsqueeze chain diffs to shape 1, framesR, framesL 
-        rotqTrotk = unsqueeze(chain_diffs, 1) .* rotqTrotk .+ (1 .- unsqueeze(chain_diffs, 1)) .* rotq2Trotk2
+        rotqTrotk = unsqueeze(chain_diffs, 1) .* rotqTrotk .+ (1 .- unsqueeze(chain_diffs, 1) .* rotq2Trotk2)
     end
     return rotqTrotk
 end
-
+export dotproducts 
 Flux.@layer IPARoPE

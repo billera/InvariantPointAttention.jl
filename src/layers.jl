@@ -45,7 +45,7 @@ IPA_settings(
     c_z = 0,
     Typ = Float32,
     use_softmax1 = false,
-    scaling_qk = :default, # :none, :default, or a vector of length N_head
+    scaling_qk = :default, # :none, :default, or a vector of length N_head\
 ) = (;
     dims,
     c,
@@ -141,13 +141,13 @@ function (ipa::Union{IPCrossA, IPA})(
     zij = nothing, mask = 0, customgrad = true, 
     rope::Union{IPARoPE, Nothing} = nothing, chain_diffs = 1,
 )
-    if isnothing(zij) || mask == 0 || siL != siR || TiL != TiR
+    if mask == 0 || siL != siR || TiL != TiR
         @warn "Forcing customgrad to false"
         customgrad = false 
     end
 
     if customgrad  
-        return ipa_customgrad(ipa, TiL, siL, zij, mask)
+        return ipa_customgrad(ipa, TiL, siL, zij, mask; rope)
     end
 
     if !isnothing(zij)
@@ -182,7 +182,6 @@ function (ipa::Union{IPCrossA, IPA})(
 
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
-
     if !isnothing(rope)
         qhTkh = dotproducts(rope, qh, kh; chain_diffs)
     else
@@ -269,7 +268,7 @@ function (ipa::Union{IPCrossA, IPA})(
     return si 
 end
 
-function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,AbstractArray}, S::AbstractArray, zij::AbstractArray, mask::AbstractArray)    
+function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,AbstractArray}, S::AbstractArray, zij::AbstractArray, mask::AbstractArray, rope::Union{IPARoPE, Nothing} = nothing)    
     # Get relevant parameters from our ipa struct.
     l = ipa.layers
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
@@ -311,18 +310,13 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     end
 
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
-
-    # This should be Q'K, following IPA, which isn't like the regular QK'
-    # Dot products between queries and keys.
-                        #FramesR, c, N_head, Batch
-    qhT = permutedims(qh, (3, 1, 2, 4))
-                         #c, FramesL, N_head, Batch
-    kh = permutedims(kh, (1, 3, 2, 4))
-    qhTkh = permutedims(#FramesR, #FramesL, N_head, Batch
-                        batched_mul(qhT,kh)
-                        #N_head, FramesR, FramesL, Batch when we use (3,1,2,4)
-                            ,(3,1,2,4))
     
+    if !isnothing(rope)
+        qhTkh = dotproducts(rope, qh, kh; chain_diffs)
+    else
+        qhTkh = dotproducts(qh, kh)
+    end 
+
     # Applying our transformations to the queries, keys, and values to put them in the global frame.
     Tqhp = reshape(T_R3(qhp, rot_TiR,translate_TiR),3,N_head,N_query_points,N_frames_R,:) 
     Tkhp = reshape(T_R3(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
