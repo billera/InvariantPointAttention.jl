@@ -147,7 +147,7 @@ function (ipa::Union{IPCrossA, IPA})(
     end
 
     if customgrad  
-        return ipa_customgrad(ipa, TiL, siL, zij, mask; rope)
+        return ipa_customgrad(ipa, TiL, siL, zij, mask, rope = rope, chain_diffs = chain_diffs)
     end
 
     if !isnothing(zij)
@@ -268,7 +268,14 @@ function (ipa::Union{IPCrossA, IPA})(
     return si 
 end
 
-function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,AbstractArray}, S::AbstractArray, zij::AbstractArray, mask::AbstractArray, rope::Union{IPARoPE, Nothing} = nothing, chain_diffs = 1)    
+function ipa_customgrad(
+    ipa::Union{IPCrossA, IPA}, 
+    Ti::Tuple{AbstractArray,AbstractArray}, 
+    S::AbstractArray, 
+    zij::Union{AbstractArray, Nothing},
+    mask::AbstractArray; 
+    rope = nothing, 
+    chain_diffs = 1)         
     # Get relevant parameters from our ipa struct.
     l = ipa.layers
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
@@ -312,6 +319,8 @@ function ipa_customgrad(ipa::Union{IPCrossA, IPA}, Ti::Tuple{AbstractArray,Abstr
     vhp = reshape(l.proj_vhp(siL),(3,N_head*N_point_values,N_frames_L,:))
     
     if !isnothing(rope)
+       # @show size(qh)
+       #@show size(kh)
         qhTkh = dotproducts(rope, qh, kh; chain_diffs)
     else
         qhTkh = dotproducts(qh, kh)
@@ -637,6 +646,7 @@ function expand(
     )
     layer.ipa_linear(o), cache
 end
+
 
 sumdrop(x; dims) = dropdims(sum(x; dims); dims)
 sumdrop(f, x; dims) = dropdims(sum(f, x; dims); dims)

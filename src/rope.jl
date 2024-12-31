@@ -118,18 +118,24 @@ function RoPEdotproducts(iparope::IPARoPE, q, k; chain_diffs = nothing)
     chain_diffs is either nothing or a array of 0's and 1's describing the ij-pair as pertaining to the same chain if the entry at ij is 1, else 0. 
 """
 function dotproducts(iparope::IPARoPE, qh::AbstractArray{T, 4}, kh::AbstractArray{T, 4}; chain_diffs = 1) where T<: Real
-    # O(N) permutedims, shouldn't be too bad. 
     qropshape = permutedims(qh, (1,3,2,4))
-    kropshape = permutedims(kh, (1,3,2,4))
-    rotq, rotk = permutedims(iparope.rope(qropshape), (1,3,2,4)), permutedims(iparope.rope(kropshape), (1,3,2,4))
-    rotqTrotk = dotproducts(rotq, rotk)
+    kropshape = permutedims(kh, (1,3,2,4)) 
+    rotq, rotk = permutedims(iparope.rope(qropshape), (2,1,3,4)), iparope.rope(kropshape)
+    rotqTrotk = permutedims(batched_mul(
+        rotq,
+        rotk
+    ), (3,1,2,4))
+
     # when things are from different chain, we rotate only the queries by a fixed amount
     if chain_diffs != 1
         #return qropshape 
-        rotq2 = permutedims(iparope.fixed_rope(qropshape), (1,3,2,4))
-        rotq2Trotk2 = dotproducts(rotq2, kh)
+        rotq2 = permutedims(iparope.fixed_rope(qropshape), (2,1,3,4))
+        rotq2Trotk2 = permutedims(batched_mul(
+            rotq2,
+            kropshape
+        ), (3,1,2,4))
         # unsqueeze chain diffs to shape 1, framesR, framesL 
-        rotqTrotk = unsqueeze(chain_diffs, 1) .* rotqTrotk .+ (1 .- unsqueeze(chain_diffs, 1) .* rotq2Trotk2)
+        rotqTrotk = Flux.unsqueeze(chain_diffs, 1) .* rotqTrotk .+ (1 .- Flux.unsqueeze(chain_diffs, 1) .* rotq2Trotk2)
     end
     return rotqTrotk
 end
