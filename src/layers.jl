@@ -472,6 +472,7 @@ function IPACache(settings::NamedTuple, batchsize::Integer)
     IPACache(0, 0, batchsize, qh, kh, vh, qhp, khp, vhp)
 end
 
+
 function expand(
     ipa::IPCrossA,
     cache::IPACache,
@@ -479,6 +480,7 @@ function expand(
     TiR::Tuple, siR::AbstractArray, ΔR::Integer;
     zij = nothing,
     mask = 0,
+    rope = nothing
 )
     dims, c, N_head, N_query_points, N_point_values, c_z, Typ, pairwise = ipa.settings 
     if haskey(ipa.settings, :use_softmax1) #For compat
@@ -494,7 +496,11 @@ function expand(
     gamma_h = softplus(clamp.(layer.gamma_h,Typ(-100), Typ(100))) #Clamping
 
     Δqh = reshape(calldense(layer.proj_qh, siR[:,R+1:R+ΔR,:]), (c, N_head, ΔR, B))
-    Δkh = reshape(calldense(layer.proj_kh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
+    Δkh = reshape(calldense(layer.proj_kh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B)) 
+    if !isnothing(rope)
+        Δqh = rope(Δqh)
+        Δkh = rope(Δkh)
+    end
     Δvh = reshape(calldense(layer.proj_vh, siL[:,L+1:L+ΔL,:]), (c, N_head, ΔL, B))
 
     Δqhp = reshape(calldense(layer.proj_qhp, siR[:,R+1:R+ΔR,:]), (3, N_head * N_query_points, ΔR, B))
