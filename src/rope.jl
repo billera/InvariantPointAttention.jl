@@ -71,8 +71,7 @@ Flux.@layer FixedRoPE
 Flux.trainable(m::FixedRoPE) = (m.angle,)
 
 function FixedRoPE(dim::Int; T = Float32, theta = T(π/4))
-    angle = T(π/4)
-    return FixedRoPE(angle)
+    return FixedRoPE([theta])
 end
 
 function (rope::FixedRoPE)(x)
