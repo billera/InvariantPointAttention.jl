@@ -70,10 +70,6 @@ end
 Flux.@layer FixedRoPE 
 Flux.trainable(m::FixedRoPE) = (m.angle,)
 
-function FixedRoPE(dim::Int; T = Float32, theta = T(π/4))
-    return FixedRoPE([theta])
-end
-
 function (rope::FixedRoPE)(x)
     head_dim = size(x, 1)
     x1 = x[1:head_dim÷2, :, :, :]
@@ -97,7 +93,7 @@ function IPARoPE(dim::Int, end_pos::Int;
     theta::T=10000f0, use_scaled=true, scale_factor=8, start_pos=0) where T
     return IPARoPE(
         RoPE(dim, end_pos; theta, use_scaled, scale_factor, start_pos),
-        FixedRoPE(theta)
+        FixedRoPE([theta])
     )   
 end
 
