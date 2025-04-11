@@ -65,7 +65,7 @@ function unrope(rope, x)
 end
 
 struct FixedRoPE{A <: AbstractArray}
-    angle:A  # One angle per dimension pair
+    angle::A  # One angle per dimension pair
 end
 Flux.@layer FixedRoPE 
 Flux.trainable(m::FixedRoPE) = (m.angle,)
