@@ -64,12 +64,13 @@ function unrope(rope, x)
     )
 end
 
-struct FixedRoPE{T<:Real}
-    angle::T  # One angle per dimension pair
+struct FixedRoPE{T <: Real}
+    angle::Vector{T}  # One angle per dimension pair
 end
-Flux.@layer FixedRoPE trainable=:angle
+Flux.@layer FixedRoPE 
+Flux.trainable(m::FixedRoPE) = (m.angle,)
 
-function FixedRoPE(dim::Int; theta = T(π/4), T = Float32)
+function FixedRoPE(dim::Int; T = Float32, theta = T(π/4))
     angle = T(π/4)
     return FixedRoPE(angle)
 end
@@ -141,3 +142,4 @@ function dotproducts(iparope::IPARoPE, qh::AbstractArray{T, 4}, kh::AbstractArra
 end
 export dotproducts 
 Flux.@layer IPARoPE
+Flux.trainable(m::IPARoPE) = (m.fixed_rope,)
