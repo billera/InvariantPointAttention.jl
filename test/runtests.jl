@@ -10,6 +10,40 @@ using ChainRulesTestUtils
 
 @testset "InvariantPointAttention.jl" begin
 
+    @testset "Batched rope indexing" begin
+        dims = 8
+        settings = IPA_settings(dims)
+         
+        # generate random data
+        L = 10
+        B = 5
+        S = randn(Float32, dims, L, B)
+        T = (get_rotation(L, B), get_translation(L, B))
+        
+        #batched residue indices
+        pos_matrix = rand(1:L, L, B)
+        
+        ipa = IPCrossA(settings)
+        rope = IPARoPE(ipa.settings.c, 100)
+        
+        # Use batched rope
+        S1 = ipa(T, S, T, S;  mask = right_to_left_mask(10), rope = rope[pos_matrix])   
+        
+        # Choose custom residue ordering manually and then stack
+        Tn(n) = (T[1][:,:,:,n:n], T[2][:,:,:,n:n])
+        S2 = stack([
+            ipa(
+                Tn(n), 
+                S[:,:,n:n], 
+                Tn(n),
+                S[:,:,n:n];
+                mask = right_to_left_mask(10),
+                rope = rope[pos_matrix[:,n]]
+             )[:,:,1] for n in 1:B
+        ])
+        @test S1 ≈ S2         
+    end
+
     @testset "Rope Expand" begin
         dims = 8
         settings = IPA_settings(dims)
