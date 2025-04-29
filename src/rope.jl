@@ -6,6 +6,18 @@ struct RoPE{A<:AbstractArray}
 end
 Base.getindex(rope::RoPE, i) = RoPE(rope.cos[:,i,:,:], rope.sin[:,i,:,:])
 
+function Base.getindex(rope::RoPE, pos_matrix::AbstractMatrix{<:Integer})
+    n_seq, n_batch = size(pos_matrix)
+    # Reshape pos_matrix to (seq_len, 1, 1, batch) for broadcasting
+    pos_idx = reshape(pos_matrix, (n_seq, 1, 1, n_batch))
+    
+    # Index cos and sin, preserving the head_dim but using custom positions for each batch
+    # Result shape will be (head_dim, seq_len, 1, batch)
+    new_cos = rope.cos[:, pos_idx]
+    new_sin = rope.sin[:, pos_idx]
+    
+    return RoPE(new_cos, new_sin)
+end
 Flux.@layer RoPE trainable=()
 
 function apply_scaling!(freqs::AbstractVector; scale_factor=8)
