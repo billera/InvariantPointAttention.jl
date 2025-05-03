@@ -139,10 +139,12 @@ function (ipa::Union{IPCrossA, IPA})(
     TiL::Tuple{AbstractArray, AbstractArray}, siL::AbstractArray,
     TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray;
     zij = nothing, mask = 0, customgrad = true, 
-    rope::Union{IPARoPE, Nothing} = nothing, chain_diffs = 1,
+    rope::Union{IPARoPE, Nothing} = nothing, chain_diffs = 1, show_warnings = true
 )
     if mask == 0 || siL != siR || TiL != TiR
-        @warn "Forcing customgrad to false"
+        if show_warnings
+            @warn "Forcing customgrad to false"
+        end
         customgrad = false 
     end
 
