@@ -148,7 +148,7 @@ function (ipa::Union{IPCrossA, IPA})(
         customgrad = false 
     end
 
-    if customgrad  
+    if customgrad  || !old_eucdists
         return ipa_customgrad(ipa, TiL, siL, zij, mask, rope = rope, chain_diffs = chain_diffs)
     end
 
