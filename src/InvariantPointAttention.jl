@@ -4,7 +4,7 @@ using LinearAlgebra
 using Flux
 using ChainRulesCore
 
-include("rotational_utils.jl")
+include("utils.jl")
 include("grads.jl")
 include("rope.jl")
 include("layers.jl")

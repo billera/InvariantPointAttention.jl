@@ -139,7 +139,7 @@ function (ipa::Union{IPCrossA, IPA})(
     TiL::Tuple{AbstractArray, AbstractArray}, siL::AbstractArray,
     TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray;
     zij = nothing, mask = 0, customgrad = true, 
-    rope::Union{IPARoPE, Nothing} = nothing, chain_diffs = 1, show_warnings = false, old_eucdists = false
+    rope::Union{IPARoPE, Nothing} = nothing, chain_diffs = 1, show_warnings = false
 )
     if mask == 0 || siL != siR || TiL != TiR
         if show_warnings
@@ -148,7 +148,7 @@ function (ipa::Union{IPCrossA, IPA})(
         customgrad = false 
     end
 
-    if customgrad  && old_eucdists
+    if customgrad
         return ipa_customgrad(ipa, TiL, siL, zij, mask, rope = rope, chain_diffs = chain_diffs)
     end
 
@@ -208,24 +208,16 @@ function (ipa::Union{IPCrossA, IPA})(
     # Dot products between queries and keys.
                         #FramesR, c, N_head, Batch
 
-    
-
     # Applying our transformations to the queries, keys, and values to put them in the global frame.
     Tqhp = reshape(T_R3(qhp, rot_TiR,translate_TiR),3,N_head,N_query_points,N_frames_R,:) 
     Tkhp = reshape(T_R3(khp, rot_TiL,translate_TiL),3,N_head,N_query_points,N_frames_L,:)
     Tvhp = T_R3(vhp, rot_TiL, translate_TiL)
 
-    if old_eucdists # BREAKING: THIS PATH IS USED IN RUNTESTS
-        diffs_glob = Flux.unsqueeze(Tqhp, dims = 5) .- Flux.unsqueeze(Tkhp, dims = 4)
-        sum_norms_glob = reshape(sum(abs2, diffs_glob, dims = [1,3]),N_head,N_frames_R,N_frames_L,:) #Sum over points for each head
-    else 
-        PTqhp = permutedims(Tqhp, (4,1,3,2,5)) # NR, 3, Nqp, Nh, batch_size 
-        PTkhp = permutedims(Tkhp, (1,3,4,2,5)) # 3, Nqp, NL, Nh, batch_size
-        RPTqhp = reshape(PTqhp, N_frames_R, 3*N_query_points, N_head*batch)
-        RPTkhp = reshape(PTkhp, 3*N_query_points, N_frames_L, N_head*batch) 
-        sum_norms_glob = permutedims(reshape(PairwiseEuclideans(RPTqhp, RPTkhp), N_frames_R, N_frames_L, N_head, batch), (3,1,2,4)) 
-    end
-
+    PTqhp = permutedims(Tqhp, (4,1,3,2,5)) # NR, 3, Nqp, Nh, batch_size 
+    PTkhp = permutedims(Tkhp, (1,3,4,2,5)) # 3, Nqp, NL, Nh, batch_size
+    RPTqhp = reshape(PTqhp, N_frames_R, 3*N_query_points, N_head*batch)
+    RPTkhp = reshape(PTkhp, 3*N_query_points, N_frames_L, N_head*batch) 
+    sum_norms_glob = permutedims(reshape(pairwise_sqeuclidean(RPTqhp, RPTkhp), N_frames_R, N_frames_L, N_head, batch), (3,1,2,4))
 
     att_arg = reshape(dim_scale .* qhTkh .- w_C/2 .* gamma_h .* sum_norms_glob,(N_head,N_frames_R,N_frames_L, :))
 
