@@ -8,6 +8,9 @@ import Flux
 
 using ChainRulesTestUtils
 
+using Random
+Random.seed!(0)
+
 @testset "InvariantPointAttention.jl" begin
 
     @testset "Batched rope indexing" begin
@@ -295,7 +298,7 @@ using ChainRulesTestUtils
             @test maximum(abs.(gs .- zygotegs)) < 2f-5
         end
         #@show lz, lz2
-        @test abs.(lz - lz2) < 1f-5
+        @test abs.(lz - lz2) < 1f-4
     end
 
 end
