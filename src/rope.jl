@@ -105,7 +105,7 @@ function IPARoPE(dim::Int, end_pos::Int;
     theta::T=10000f0, use_scaled=true, scale_factor=8, start_pos=0) where T
     return IPARoPE(
         RoPE(dim, end_pos; theta, use_scaled, scale_factor, start_pos),
-        FixedRoPE([theta])
+        FixedRoPE([pi/4])
     )   
 end
 
@@ -124,8 +124,9 @@ end
 function RoPEdotproducts(iparope::IPARoPE, q, k; chain_diffs = nothing)
 
     chain_diffs is either nothing or a array of 0's and 1's describing the ij-pair as pertaining to the same chain if the entry at ij is 1, else 0. 
+    virts is a vector whose i'th entry indicates if the i'th residue is virtual or not
 """
-function dotproducts(iparope::IPARoPE, qh::AbstractArray{T, 4}, kh::AbstractArray{T, 4}; chain_diffs = 1) where T<: Real
+function dotproducts(iparope::IPARoPE, qh::AbstractArray{T, 4}, kh::AbstractArray{T, 4}; chain_diffs = 1, virts = 0) where T<: Real
     qropshape = permutedims(qh, (1,3,2,4))
     kropshape = permutedims(kh, (1,3,2,4)) 
     rotq, rotk = permutedims(iparope.rope(qropshape), (2,1,3,4)), iparope.rope(kropshape)
@@ -133,11 +134,13 @@ function dotproducts(iparope::IPARoPE, qh::AbstractArray{T, 4}, kh::AbstractArra
         rotq,
         rotk
     ), (3,1,2,4))
-
     # when things are from different chain, we rotate only the queries by a fixed amount
     if chain_diffs != 1
-        #return qropshape 
+        #for virtual residues,  we to rotate it twice to the let the model that the residue pair is between chains
         rotq2 = permutedims(iparope.fixed_rope(qropshape), (2,1,3,4))
+        rotqvirt2 = permutedims(iparope.fixed_rope(iparope.fixed_rope(qropshape)), (2,1,3,4))
+        vmask = Flux.unsqueeze(Flux.unsqueeze(virts, dims=1),dims=1))
+        rotq = (1 .- vmask) .* rotq2 .+ vmask .* rotqvirt2 
         rotq2Trotk2 = permutedims(batched_mul(
             rotq2,
             kropshape
