@@ -139,7 +139,7 @@ function dotproducts(iparope::IPARoPE, qh::AbstractArray{T, 4}, kh::AbstractArra
         #for virtual residues,  we to rotate it twice to the let the model that the residue pair is between chains
         rotq2 = permutedims(iparope.fixed_rope(qropshape), (2,1,3,4))
         rotqvirt2 = permutedims(iparope.fixed_rope(iparope.fixed_rope(qropshape)), (2,1,3,4))
-        vmask = Flux.unsqueeze(Flux.unsqueeze(virts, dims=1),dims=1)
+        vmask = (virts != 0) ? Flux.unsqueeze(Flux.unsqueeze(virts, dims=1),dims=1) : 0 
         rotq = (1 .- vmask) .* rotq2 .+ vmask .* rotqvirt2 
         rotq2Trotk2 = permutedims(batched_mul(
             rotq2,
