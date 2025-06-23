@@ -186,11 +186,15 @@ function (ipa::Union{IPCrossA, IPA})(
 
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
+    @show typeof(qh), typeof(kh), typeof(chain_diffs), typeof(virts)
+
     if !isnothing(rope)
         qhTkh = dotproducts(rope, qh, kh; chain_diffs, virts)
     else
         qhTkh = dotproducts(qh, kh)
     end 
+
+    @show size(qhTkh)
 
     vh = reshape(l.proj_vh(siL),(c,N_head,N_frames_L,:))
 
