@@ -139,7 +139,7 @@ function (ipa::Union{IPCrossA, IPA})(
     TiL::Tuple{AbstractArray, AbstractArray}, siL::AbstractArray,
     TiR::Tuple{AbstractArray, AbstractArray}, siR::AbstractArray;
     zij = nothing, mask = 0, customgrad = true, 
-    rope::Union{IPARoPE, Nothing} = nothing, chain_diffs = 1, show_warnings = false
+    rope::Union{IPARoPE, Nothing} = nothing, chain_diffs = 1, virts= 0, show_warnings = false
 )
     if mask == 0 || siL != siR || TiL != TiR
         if show_warnings
@@ -187,7 +187,7 @@ function (ipa::Union{IPCrossA, IPA})(
     qh = reshape(l.proj_qh(siR),(c,N_head,N_frames_R,:))
     kh = reshape(l.proj_kh(siL),(c,N_head,N_frames_L,:))
     if !isnothing(rope)
-        qhTkh = dotproducts(rope, qh, kh; chain_diffs)
+        qhTkh = dotproducts(rope, qh, kh; chain_diffs, virts)
     else
         qhTkh = dotproducts(qh, kh)
     end 
